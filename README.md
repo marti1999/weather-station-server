@@ -1,792 +1,434 @@
-# Weather Station Server
+# Weather Station Server - MQTT + InfluxDB
 
-A complete server-side solution for collecting weather station data via RTL_433, storing it in InfluxDB, and preparing for data visualization and home automation integration.
+A Docker-based server setup to receive weather station data from RTL_433, store it in InfluxDB via MQTT, with the ability to add Grafana and Home Assistant later.
 
-## System Architecture
+## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         CLIENT SIDE                              │
-│  RTL_433 (Windows/Linux) receives 868.3MHz RF signals from       │
-│  weather station and publishes to MQTT broker                    │
-└─────────────────────────────────┬───────────────────────────────┘
-                                  │ MQTT Protocol (TCP/1883)
-                                  ▼
-        ┌─────────────────────────────────────────────────────────┐
-        │              DOCKER CONTAINERS (Server)                  │
-        │                                                           │
-        │  ┌──────────────┐      ┌──────────────┐                 │
-        │  │  Mosquitto   │──────│   Bridge     │                 │
-        │  │   (MQTT)     │      │(Python App)  │                 │
-        │  └──────────────┘      └──────┬───────┘                 │
-        │                               │                          │
-        │  ┌──────────────────────────────────────────┐            │
-        │  │                                          │            │
-        │  ▼                                          │            │
-        │  ┌──────────────┐      ┌──────────────┐    │            │
-        │  │  InfluxDB    │◄─────│   Future:    │    │            │
-        │  │(Time-Series) │      │  - Grafana   │    │            │
-        │  └──────────────┘      │  - Home      │    │            │
-        │                        │    Assistant │    │            │
-        │                        └──────────────┘    │            │
-        │                                          │            │
-        │  (All containers on shared 'weather-network')           │
-        └─────────────────────────────────────────────────────────┘
+RTL_433 (Client) --> MQTT Broker (Mosquitto) --> Telegraf --> InfluxDB
+                                                                  |
+                                                           (Future: Grafana)
+                                                           (Future: Home Assistant)
 ```
+
+### What Each Component Does
+
+1. **RTL_433 (Client Side)**: Receives radio signals from your weather station and publishes JSON data to MQTT
+2. **Mosquitto**: MQTT broker that receives and distributes messages
+3. **Telegraf**: Subscribes to MQTT topics and writes data to InfluxDB
+4. **InfluxDB**: Time-series database that stores all weather measurements
 
 ## Prerequisites
 
-- **Docker Desktop** installed (for Windows/Mac) or **Docker + Docker Compose** (for Linux)
-- **Python 3.11+** (only needed if running the bridge script locally without Docker)
-- Weather station transmitting on 868.3 MHz RF frequency
-- Network connectivity between client and server
+### Server Side
+- Docker Desktop installed (Windows 11 or Linux)
+- Docker Compose installed (included with Docker Desktop)
+
+### Client Side (Where RTL_433 runs)
+- RTL_433 installed
+- Network access to the server's IP address
 
 ## Quick Start
 
-### 1. Clone/Download the Repository
+### 1. Configure Environment Variables
+
+**IMPORTANT: First time setup**
+
+Copy the example environment file and update with your own secure credentials:
 
 ```bash
-cd weather-station-server-1
+cp .env.example .env
 ```
 
-### 2. Start the Docker Services
+Then edit `.env` and change the default passwords and tokens:
 
 ```bash
+# Generate a secure password
+openssl rand -base64 32
+
+# Or on Windows PowerShell
+-join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object {[char]$_})
+```
+
+Update these values in `.env`:
+- `INFLUXDB_ADMIN_PASSWORD` - Change from default
+- `INFLUXDB_ADMIN_TOKEN` - Use a secure random string
+
+**Security Note**: The `.env` file contains sensitive credentials and is excluded from git via `.gitignore`.
+
+### 2. Start the Server Stack
+
+Navigate to the project directory and start all services:
+
+```bash
+cd C:\Users\mcaix\Documents\weather_station_server_claude
 docker-compose up -d
 ```
 
-This command will:
-- Pull the required Docker images (Mosquitto, InfluxDB, Python)
-- Create a shared network for container communication
-- Start all services in the background
+This will start:
+- Mosquitto MQTT broker on port 1883
+- InfluxDB on port 8086
+- Telegraf (runs in background, no exposed ports)
 
-Verify all containers are running:
+### 2. Verify Services Are Running
 
 ```bash
 docker-compose ps
 ```
 
-### 3. Access the Services
+All services should show status "Up".
 
-- **MQTT Broker**: `localhost:1883` or `<server-ip>:1883`
-- **MQTT WebSocket**: `localhost:9001` (for web-based clients)
-- **InfluxDB API**: `http://localhost:8086/`
-  - Note: InfluxDB 1.8 doesn't have a built-in web UI. Use the API directly or install Grafana for visualization.
-  - Test the API: `http://localhost:8086/ping` (should return 204 No Content)
-  - Query example: See [Querying InfluxDB](#querying-influxdb) section below
+### 3. Access InfluxDB Web UI
 
-### 3.5 Configure Environment Variables (Optional)
+Open your browser and go to: http://localhost:8086
 
-The system uses default credentials for development. To customize them:
+Login credentials:
+- Username: `admin`
+- Password: `adminpassword123`
+- Organization: `weather`
+- Bucket: `weather_data`
 
-1. Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
+## Running RTL_433 Client and Publishing to MQTT
 
-2. Edit `.env` with your values:
-```env
-MQTT_HOST=mosquitto
-MQTT_PORT=1883
-INFLUXDB_DB=weather_data
-INFLUXDB_USER=admin
-INFLUXDB_PASSWORD=your_secure_password
-```
+RTL_433 has **built-in MQTT support**, so you don't need pipes or mosquitto_pub!
 
-3. Restart the services:
-```bash
-docker-compose up -d
-```
+### On Windows (Client Machine)
 
-**Important**: The `.env` file is ignored by git (see `.gitignore`). Never commit sensitive credentials.
-
-### 4. Set Up Python Virtual Environment (Host Machine)
-
-To run the query script on your host machine (to view stored weather data), you'll need Python with the required packages:
-
-#### **Windows 11:**
-
-```powershell
-# Create virtual environment
-python -m venv venv
-
-# Activate it
-.\venv\Scripts\Activate.ps1
-
-# Install required packages
-pip install -r scripts/requirements.txt
-```
-
-#### **Linux/Mac:**
+Replace `<SERVER_IP>` with your server's IP address (use `127.0.0.1` or `localhost` if running on the same machine):
 
 ```bash
-# Create virtual environment
-python3 -m venv venv
-
-# Activate it
-source venv/bin/activate
-
-# Install required packages
-pip install -r scripts/requirements.txt
+rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level \
+  -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" \
+  -F "mqtt://<SERVER_IP>:1883,retain=0,events=rtl_433[/model][/id]"
 ```
 
-#### **Then use the query script:**
-
-```powershell
-# View all stored weather data in table format
-python scripts/query_influxdb.py
+**Example for localhost:**
+```bash
+rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level \
+  -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" \
+  -F "mqtt://127.0.0.1:1883,retain=0,events=rtl_433[/model][/id]"
 ```
 
-The venv folder is ignored by git (see `.gitignore`), so it won't be committed to the repository.
-
-### 5. Configure Client (RTL_433)
-
-#### **Windows 11 - Option 1: Install Mosquitto Client Tools (Recommended)**
-
-1. Download Mosquitto: https://mosquitto.org/download/
-2. Install the Windows installer
-3. Add to your PATH or use full path: `C:\Program Files\mosquitto\mosquitto_pub.exe`
-4. Pipe RTL_433 JSON output to mosquitto_pub:
-
-```cmd
-rtl_433.exe -s 1000k -f 868.3M -R 263 -Y classic -M level -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" -F json | mosquitto_pub -h <YOUR_SERVER_IP> -t rtl_433/devices/Vevor-7in1 -l
-```
-
-**Key Points:**
-- `-F json` outputs JSON format (required)
-- `| mosquitto_pub` pipes the output to MQTT broker
-- `-h <YOUR_SERVER_IP>` is the server running Docker
-- `-t rtl_433/devices/Vevor-7in1` is the topic name
-- `-l` reads each line as a separate message
-
-#### **Windows 11 - Option 2: Use Docker (No Installation)**
-
-Pipe RTL_433 JSON directly through Docker's mosquitto container:
-
-```cmd
-rtl_433.exe -s 1000k -f 868.3M -R 263 -Y classic -M level -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" -F json | docker run --rm -i --net host eclipse-mosquitto mosquitto_pub -h <YOUR_SERVER_IP> -t rtl_433/devices/Vevor-7in1 -l
-```
-
-#### **Linux Command:**
+### On Linux (Client Machine)
 
 ```bash
-rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" -F json | mosquitto_pub -h <YOUR_SERVER_IP> -t rtl_433/devices/Vevor-7in1 -l
+rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level \
+  -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" \
+  -F "mqtt://<SERVER_IP>:1883,retain=0,events=rtl_433[/model][/id]"
 ```
 
-Replace `<YOUR_SERVER_IP>` with your server's IP address or hostname.
+### MQTT Output Format Explanation
 
-#### **Testing - Real Vevor-7in1 Data**
+The `-F` flag configures RTL_433 to publish to MQTT:
+- `mqtt://<SERVER_IP>:1883` - MQTT broker address and port
+- `retain=0` - Don't retain messages (only send live data)
+- `events=rtl_433[/model][/id]` - Dynamic topic structure where:
+  - `[/model]` is replaced with the device model name (e.g., `/Vevor-7in1`)
+  - `[/id]` is replaced with the device ID (e.g., `/3092`)
+  - **Example topic**: `rtl_433/Vevor-7in1/3092` for a Vevor-7in1 sensor with ID 3092
 
-Test with actual sensor data:
+**Note**: The square brackets `[]` are placeholders that rtl_433 replaces at runtime. Do NOT remove them from the command.
 
-```powershell
-docker exec weather-mosquitto mosquitto_pub -h localhost -t "rtl_433/devices/Vevor-7in1" -m '{"time" : "2026-01-05 18:44:20", "model" : "Vevor-7in1", "id" : 3092, "channel" : 0, "battery_ok" : 1, "temperature_C" : 4.3, "humidity" : 89, "wind_avg_km_h" : 0.0, "wind_max_km_h" : 2.5, "wind_dir_deg" : 90, "rain_mm" : 343.209, "uvi" : 0.0, "light_lux" : 0, "rssi" : -2.327, "snr" : 30.786, "noise" : -33.113}'
-```
+### Alternative: Simple Topic Structure
 
-#### **View Data - Use Query Script**
-
-```powershell
-pip install tabulate influxdb
-python scripts/query_influxdb.py
-```
-
-This displays all measurements in SQL-like table format. This is the EASIEST way to view your data.
-
-#### **Alternative: Docker CLI**
+If you prefer a simpler single-topic structure, use:
 
 ```bash
-docker exec weather-influxdb influx -database weather_data -execute 'SELECT * FROM "rtl_433_devices_Vevor-7in1"'
-
-#### **Testing Without RTL_433**
-
-You can test the system using Docker without RTL_433:
-
-```powershell
-# Windows PowerShell - simple test data
-docker exec weather-mosquitto mosquitto_pub -h localhost -t "rtl_433/devices/TestSensor" -m '{"temperature": 23.1, "humidity": 42, "model": "TestSensor", "battery": "ok", "rssi": -85}'
-
-# Or test with real Vevor-7in1 data
-docker exec weather-mosquitto mosquitto_pub -h localhost -t "rtl_433/devices/Vevor-7in1" -m '{"time" : "2026-01-05 18:44:20", "model" : "Vevor-7in1", "id" : 3092, "channel" : 0, "battery_ok" : 1, "temperature_C" : 4.3, "humidity" : 89, "wind_avg_km_h" : 0.0, "wind_max_km_h" : 2.5, "wind_dir_deg" : 90, "rain_mm" : 343.209, "uvi" : 0.0, "light_lux" : 0, "rssi" : -2.327, "snr" : 30.786, "noise" : -33.113}'
+-F "mqtt://<SERVER_IP>:1883,retain=0,events=rtl_433/events"
 ```
 
-The data will automatically flow to InfluxDB. Check the bridge logs:
-```powershell
-docker logs weather-mqtt-bridge
-```
+This publishes all data to a single topic: `rtl_433/events`
 
-## Component Details
+## Testing the Data Flow
 
-### Mosquitto (MQTT Broker)
+### 1. Monitor MQTT Messages
 
-**Purpose**: Acts as a message broker that receives data from RTL_433 clients and distributes it to subscribers.
-
-**Key Features**:
-- Lightweight publish-subscribe messaging
-- Supports both standard MQTT (port 1883) and WebSocket (port 9001) protocols
-- Persistent message storage (survives restarts)
-- Perfect for IoT devices with limited resources
-
-**Configuration File**: `config/mosquitto.conf`
-- Anonymous connections allowed (change for production security)
-- Persistence enabled at `/mosquitto/data/`
-- Logging to both file and stdout
-
-**Default Port**: 1883
-
-### MQTT to InfluxDB Bridge
-
-**Purpose**: Acts as a consumer that listens to MQTT messages and forwards them to InfluxDB with proper formatting.
-
-**How It Works**:
-1. Subscribes to `rtl_433/#` topic (receives all RTL_433 data)
-2. Parses incoming JSON data from weather station
-3. Converts MQTT data into InfluxDB Point format:
-   - Numeric values become "fields" (the actual measurements)
-   - String/categorical values become "tags" (metadata for querying)
-4. Writes points to InfluxDB with timestamps
-
-**Example Data Flow**:
-```
-MQTT Topic: rtl_433/devices/Vevor-YT60234
-Message: {"temperature": 22.5, "humidity": 45, "model": "Vevor", "battery": "ok"}
-        ↓
-Converts to:
-  Measurement: rtl_433_devices
-  Fields: temperature=22.5, humidity=45
-  Tags: model="Vevor", battery="ok"
-  ↓
-Stored in InfluxDB for querying and visualization
-```
-
-**Script Location**: `scripts/mqtt_influxdb_bridge.py`
-
-### Detailed Data Flow Example
-
-This section shows exactly what happens to your Vevor-7in1 weather station data as it flows through the system.
-
-#### **Input Data - Real Vevor-7in1 Sensor Output**
-
-Your Vevor-7in1 weather station transmits on 868.3 MHz RF. RTL_433 receives it with JSON output:
-
-```json
-{"time" : "2026-01-05 18:44:20", "model" : "Vevor-7in1", "id" : 3092, "channel" : 0, "battery_ok" : 1, "temperature_C" : 4.3, "humidity" : 89, "wind_avg_km_h" : 0.0, "wind_max_km_h" : 2.5, "wind_dir_deg" : 90, "rain_mm" : 343.209, "uvi" : 0.0, "light_lux" : 0, "mic" : "CHECKSUM", "mod" : "FSK", "freq1" : 868.402, "freq2" : 868.302, "rssi" : -2.327, "snr" : 30.786, "noise" : -33.113}
-```
-
-#### **Step 1: RTL_433 Client**
-
-Location: Your client machine (Windows/Linux running RTL_433)
-
-The command reads RF signals and outputs JSON:
-```cmd
-rtl_433.exe -s 1000k -f 868.3M -R 263 -Y classic -M level -X "n=Vevor-YT60234,..." -F json
-```
-
-Output piped to mosquitto_pub
-
-#### **Step 2: MQTT Publish**
-
-Location: Your client machine (piped to mosquitto_pub)
-
-The JSON is published to the MQTT broker:
-```
-Topic: rtl_433/devices/Vevor-7in1
-Payload: Real-time Vevor-7in1 sensor data in JSON format
-```
-
-#### **Step 3: Mosquitto Broker (Docker Container)**
-
-Location: Server, inside `weather-mosquitto` container
-
-- **Receives** the message on topic `rtl_433/devices/Vevor-7in1`
-- **Stores** a copy for persistence (survives broker restart)
-- **Broadcasts** to all subscribers (the Python Bridge)
-
-#### **Step 4: Python Bridge Processing (Docker Container)**
-
-Location: Server, inside `weather-mqtt-bridge` container
-
-The bridge receives the Vevor-7in1 JSON and **intelligently separates it into FIELDS (measurements) and TAGS (metadata)**:
-
-**Incoming JSON from Vevor-7in1:**
-```json
-{
-  "time": "2026-01-05 18:44:20",
-  "model": "Vevor-7in1",
-  "id": 3092,
-  "channel": 0,
-  "battery_ok": 1,
-  "temperature_C": 4.3,
-  "humidity": 89,
-  "wind_avg_km_h": 0.0,
-  "wind_max_km_h": 2.5,
-  "wind_dir_deg": 90,
-  "rain_mm": 343.209,
-  "uvi": 0.0,
-  "light_lux": 0,
-  "rssi": -2.327,
-  "snr": 30.786,
-  "noise": -33.113,
-  "mic": "CHECKSUM",
-  "mod": "FSK",
-  "freq1": 868.402,
-  "freq2": 868.302
-}
-```
-
-**Smart Processing Logic:**
-
-The bridge knows which fields are **measurements (FIELDS)** and which are **metadata (TAGS)**:
-
-**FIELDS** (Numeric measurements to graph):
-- `temperature_C` → 4.3
-- `humidity` → 89
-- `wind_avg_km_h` → 0.0
-- `wind_max_km_h` → 2.5
-- `wind_dir_deg` → 90
-- `rain_mm` → 343.209
-- `uvi` → 0.0
-- `light_lux` → 0
-- `rssi` → -2.327
-- `snr` → 30.786
-- `noise` → -33.113
-- `battery_ok` → 1
-
-**TAGS** (Metadata for filtering/grouping):
-- `model` → "Vevor-7in1"
-- `id` → "3092"
-- `channel` → "0"
-- `mic` → "CHECKSUM"
-- `mod` → "FSK"
-- `freq1` → "868.402"
-- `freq2` → "868.302"
-
-**Measurement Name:** `rtl_433_devices_Vevor-7in1` (derived from MQTT topic)
-
-#### **Step 5: InfluxDB Storage (Docker Container)**
-
-Location: Server, inside `weather-influxdb` container
-
-**InfluxDB Point Created:**
-
-```
-Measurement: rtl_433_devices_Vevor-7in1
-Tags: {model: "Vevor-7in1", id: "3092", channel: "0", mic: "CHECKSUM", mod: "FSK"}
-Fields: {temperature_C: 4.3, humidity: 89, wind_max_km_h: 2.5, rain_mm: 343.209, uvi: 0.0, light_lux: 0, ...}
-Timestamp: 2026-01-05T18:44:20Z
-```
-
-#### **Viewing the Data**
-
-The EASIEST way to see your data:
-
-```powershell
-python scripts/query_influxdb.py
-```
-
-This displays all measurements in SQL-like table format, showing temperature, humidity, wind speed, rainfall, UV index, light, signal strength, and more.
-
-**Alternative Methods:**
-
-**Via Docker CLI:**
-```powershell
-docker exec weather-influxdb influx -database weather_data -execute 'SELECT * FROM "rtl_433_devices_Vevor-7in1" LIMIT 10'
-```
-
-**Via HTTP API (PowerShell):**
-```powershell
-Invoke-WebRequest -Uri "http://localhost:8086/query?db=weather_data&q=SELECT * FROM `"rtl_433_devices_Vevor-7in1`""
-```
-
-#### **Query Results Example**
-
-After running the query, you'll see output like:
-
-```
-Name: rtl_433_devices_Vevor-7in1
-
-Time                    Temperature  Humidity  Wind Max  Rain MM  UV Index  Light Lux  RSSI   Channel  Model
-──────────────────────  ──────────────  ────────  ────────  ────────  ─────────  ──────────  ──────  ────────  ──────────
-2026-01-05T18:44:20Z    4.3            89        2.5       343.209  0.0       0          -2.33  0        Vevor-7in1
-```
-
-The data is now ready for:
-- **Grafana Dashboards**: Real-time visualization
-- **Home Assistant Integration**: Automation rules
-- **Analysis**: Historical trends, averages, alerts
-
-## Docker Volumes and Data Persistence
-
-Your setup uses three Docker volumes to store persistent data. This is important to understand:
-
-### What are Docker Volumes?
-
-Docker volumes are managed storage locations that persist data even when containers stop. They're **NOT** regular folders you can see in File Explorer.
-
-**Location on Windows:**
-```
-C:\ProgramData\Docker\volumes\weather-station-server-1_*\
-```
-
-You can list them with:
-```powershell
-docker volume ls
-```
-
-And inspect them with:
-```powershell
-docker volume inspect weather-station-server-1_influxdb_data
-```
-
-### The Three Volumes in Your Setup
-
-| Volume | Purpose | Content |
-|--------|---------|---------|
-| `mosquitto_data` | MQTT Persistence | Stored messages (if broker crashes/restarts) |
-| `mosquitto_logs` | MQTT Logs | Broker activity logs for debugging |
-| `influxdb_data` | Database Storage | **All your weather measurements** |
-
-### Data Persistence Scenarios
-
-| Scenario | Command | Data Safe? | Notes |
-|----------|---------|-----------|-------|
-| Stop containers | `docker compose stop` | ✅ YES | Containers pause, volumes remain intact |
-| Restart containers | `docker compose start` | ✅ YES | Same data loads automatically |
-| Rebuild containers | `docker compose up -d` | ✅ YES | Old containers removed, but volumes persist |
-| Remove containers | `docker compose down` | ✅ YES | Containers deleted, volumes remain |
-| Delete volumes | `docker compose down -v` | ❌ **DATA LOST** | Volumes deleted permanently - **CAUTION** |
-
-### Important Operations
-
-**Backup your data (InfluxDB):**
-```powershell
-# Export database as SQL
-docker exec weather-influxdb influx -database weather_data -execute 'SELECT * INTO OUTFILE "/tmp/backup.txt" FROM /./'
-docker cp weather-influxdb:/tmp/backup.txt ./weather_data_backup.txt
-```
-
-**Verify data is safe during restart:**
-```powershell
-# Stop all containers
-docker compose stop
-
-# Check volume still exists
-docker volume ls | findstr weather-station
-
-# Restart
-docker compose start
-
-# Data is still there!
-docker exec weather-influxdb influx -database weather_data -execute 'SHOW MEASUREMENTS'
-```
-
-**⚠️ WARNING - Don't do this unless you want to delete all data:**
-```powershell
-# This deletes all volumes and data!
-docker compose down -v
-```
-
-## Configuration
-
-### Environment Variables
-
-Edit `docker-compose.yml` to change default settings:
-
-```yaml
-INFLUXDB_ADMIN_PASSWORD: "adminpassword"  # Change this!
-MQTT_TOPIC: "rtl_433/#"                   # Adjust if using different topic names
-INFLUXDB_TOKEN: "weather-token-default"   # Generate secure token
-```
-
-### Adding More Weather Stations
-
-1. **RTL_433 Configuration**: Adjust the `-X` parameter for each station:
-   ```bash
-   rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level \
-     -X "n=Station1,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" \
-     -X "n=Station2,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c15"
-   ```
-
-2. **MQTT Topic**: Publish each station to its own topic:
-   ```bash
-   rtl_433... | mosquitto_pub -h <SERVER_IP> -t rtl_433/devices/Station1 -l
-   ```
-
-3. The bridge will automatically handle multiple topics.
-
-## Monitoring & Debugging
-
-### View Container Logs
+Install an MQTT client to view messages:
 
 ```bash
-# All containers
-docker-compose logs
+# Using mosquitto_sub (if installed)
+mosquitto_sub -h localhost -t "rtl_433/#" -v
 
-# Specific container
-docker-compose logs mosquitto          # MQTT broker logs
-docker-compose logs influxdb           # InfluxDB logs
-docker logs weather-mqtt-bridge        # Bridge logs
+# Or use Docker
+docker exec -it mqtt-broker mosquitto_sub -t "rtl_433/#" -v
 ```
 
-### MQTT Testing
+You should see JSON messages from your weather station.
 
-Check if data is being received:
+### 2. Check InfluxDB Data
 
-**Using Docker (no installation needed):**
-```powershell
-# Subscribe to all MQTT topics
-docker exec weather-mosquitto mosquitto_sub -h localhost -t "rtl_433/#"
-```
+1. Go to http://localhost:8086
+2. Click "Data Explorer" (icon on the left sidebar)
+3. Select bucket: `weather_data`
+4. You should see measurements from your weather station
 
-**Using Mosquitto client (if installed):**
+### 3. Check Telegraf Logs
+
 ```bash
-mosquitto_sub -h localhost -t "rtl_433/#"
+docker-compose logs -f telegraf
 ```
 
-### Querying InfluxDB
+You should see messages being processed.
 
-**Using Query Script (RECOMMENDED - Easiest Method):**
+## Configuration Details
 
-```powershell
-# From your host machine (with venv activated)
-python scripts/query_influxdb.py
+### Credentials Management
+
+**All sensitive credentials are stored in `.env` file** (not tracked in git).
+
+**InfluxDB:**
+- URL: http://localhost:8086
+- Username: Set in `INFLUXDB_ADMIN_USERNAME` (default: `admin`)
+- Password: Set in `INFLUXDB_ADMIN_PASSWORD` (**change this!**)
+- Organization: Set in `INFLUXDB_ORG` (default: `weather`)
+- Bucket: Set in `INFLUXDB_BUCKET` (default: `weather_data`)
+- Token: Set in `INFLUXDB_ADMIN_TOKEN` (**change this!**)
+
+**MQTT:**
+- URL: mqtt://localhost:1883
+- No authentication (anonymous allowed)
+- To add authentication, edit `mosquitto/config/mosquitto.conf`
+
+**IMPORTANT**:
+- Never commit `.env` file to git (already in `.gitignore`)
+- Change default passwords before production use
+- Use `.env.example` as a template for new installations
+
+### Modifying Configurations
+
+#### Change MQTT Topics
+
+Edit [telegraf/telegraf.conf](telegraf/telegraf.conf) and modify the `topics` array:
+
+```toml
+topics = [
+  "rtl_433/+/events",
+  "rtl_433/#"
+]
 ```
 
-This shows all data in SQL-like table format.
+#### Change InfluxDB Credentials
 
-**Using HTTP API (Windows PowerShell):**
+1. Edit [docker-compose.yml](docker-compose.yml) and modify the environment variables
+2. Update the token in [telegraf/telegraf.conf](telegraf/telegraf.conf)
 
-```powershell
-# Check InfluxDB is running
-Invoke-WebRequest -Uri "http://localhost:8086/ping" -Method Head -UseBasicParsing
+#### Enable MQTT Authentication
 
-# List all measurements
-Invoke-WebRequest -Uri 'http://localhost:8086/query?db=weather_data&q=SHOW MEASUREMENTS' -UseBasicParsing | Select-Object -ExpandProperty Content
-
-# Query recent Vevor-7in1 data
-$query = 'SELECT * FROM "rtl_433_devices_Vevor-7in1" LIMIT 5'
-$encoded = [System.Web.HttpUtility]::UrlEncode($query)
-$response = Invoke-WebRequest -Uri "http://localhost:8086/query?db=weather_data&q=$encoded" -UseBasicParsing
-$response.Content | ConvertFrom-Json | ConvertTo-Json -Depth 10
-```
-
-**Using Docker CLI:**
-
-```powershell
-# Get last 5 measurements (note: measurement names with dashes MUST be quoted)
-docker exec weather-influxdb influx -database weather_data -execute 'SELECT * FROM "rtl_433_devices_Vevor-7in1" LIMIT 5'
-
-# Calculate average temperature from last hour
-docker exec weather-influxdb influx -database weather_data -execute 'SELECT MEAN(temperature_C) FROM "rtl_433_devices_Vevor-7in1" WHERE time > now() - 1h'
-
-# List all fields in a measurement
-docker exec weather-influxdb influx -database weather_data -execute 'SHOW FIELD KEYS FROM "rtl_433_devices_Vevor-7in1"'
-
-# List all tags in a measurement
-docker exec weather-influxdb influx -database weather_data -execute 'SHOW TAG KEYS FROM "rtl_433_devices_Vevor-7in1"'
-```
-
-**Example Output:**
+Edit [mosquitto/config/mosquitto.conf](mosquitto/config/mosquitto.conf) and change:
 
 ```
-name: rtl_433_devices_Vevor-7in1
-time                battery_ok channel humidity id   light_lux model      noise   rain_mm rssi   snr    temperature_C
-----                ---------- ------- -------- --   --------- ------     -----   ------- ----   ---    ------------- 
-1767638660000000000 1          0       89       3092 0         Vevor-7in1 -33.113 343.209 -2.327 30.786 4.3
+allow_anonymous false
+password_file /mosquitto/config/passwd
 ```
 
-**Important Note about Docker CLI Queries:**
-- Measurement names containing dashes (like `rtl_433_devices_Vevor-7in1`) **MUST** be quoted with double quotes
-- Without quotes, InfluxDB will try to parse the dash as a minus operator
-- Always use: `'SELECT * FROM "rtl_433_devices_Vevor-7in1"'` not `'SELECT * FROM rtl_433_devices_Vevor-7in1'`
+Then create a password file:
 
-## Security Considerations
-
-⚠️ **Current Setup for Development Only**
-
-For production deployment:
-
-1. **MQTT Authentication**:
-   - Enable username/password in `mosquitto.conf`
-   - Use TLS/SSL encryption (mosquitto.conf: `listener 8883 tls`)
-
-2. **InfluxDB**:
-   - Change default admin password
-   - Create service accounts with specific permissions
-   - Enable TLS/SSL
-
-3. **Network**:
-   - Don't expose ports directly to the internet
-   - Use VPN or private network
-   - Implement firewall rules
-
-4. **Example Mosquitto Config for Auth**:
-   ```
-   listener 1883
-   password_file /mosquitto/config/passwd
-   require_certificate false
-   ```
-
-## Future Enhancements
-
-This setup is designed to easily add:
-
-### Grafana (Data Visualization)
-```yaml
-grafana:
-  image: grafana/grafana:latest
-  ports:
-    - "3000:3000"
-  depends_on:
-    - influxdb
-  networks:
-    - weather-network
+```bash
+docker exec -it mqtt-broker mosquitto_passwd -c /mosquitto/config/passwd <username>
 ```
 
-### Home Assistant (Home Automation)
-```yaml
-home-assistant:
-  image: homeassistant/home-assistant:latest
-  volumes:
-    - ./config/home-assistant:/config
-  ports:
-    - "8123:8123"
-  networks:
-    - weather-network
+## Managing the Stack
+
+### View Logs
+
+```bash
+# All services
+docker-compose logs -f
+
+# Specific service
+docker-compose logs -f mosquitto
+docker-compose logs -f influxdb
+docker-compose logs -f telegraf
 ```
 
-Both will be able to connect to the shared `weather-network` and access MQTT/InfluxDB.
+### Stop Services
+
+```bash
+docker-compose stop
+```
+
+### Restart Services
+
+```bash
+docker-compose restart
+```
+
+### Stop and Remove Everything
+
+```bash
+docker-compose down
+```
+
+### Stop and Remove Including Data
+
+```bash
+docker-compose down -v
+```
+
+## Adding Grafana (Future)
+
+To add Grafana for visualization:
+
+1. Edit [docker-compose.yml](docker-compose.yml)
+2. Uncomment the `grafana` service section
+3. Uncomment `grafana-data` in the volumes section
+4. Run: `docker-compose up -d`
+5. Access Grafana at http://localhost:3000 (default login: admin/admin)
+
+## Adding Home Assistant (Future)
+
+To add Home Assistant:
+
+1. Edit [docker-compose.yml](docker-compose.yml)
+2. Uncomment the `homeassistant` service section
+3. Uncomment `homeassistant-config` in the volumes section
+4. Run: `docker-compose up -d`
+5. Access Home Assistant at http://localhost:8123
+
+**Note**: Home Assistant uses `network_mode: host` which works differently on Windows vs Linux. On Windows, you may need to change this to bridge mode and adjust port mappings.
 
 ## Troubleshooting
 
-### Containers won't start
+### Messages Not Reaching Docker Container (Windows)
+
+**Problem**: `mosquitto_pub -h 127.0.0.1 -p 1883` connects successfully but messages don't appear in the Docker container logs.
+
+**Cause**: Another Mosquitto broker is running on the host machine (Windows service) and intercepting connections to `127.0.0.1:1883`.
+
+**Solution**: Stop the host Mosquitto service before using the Docker container:
+
+```powershell
+# Check if Mosquitto is running on the host
+netstat -ano | findstr ":1883"
+
+# If you see multiple PIDs, check for mosquitto.exe
+tasklist | findstr mosquitto
+
+# Stop the Windows service
+net stop mosquitto
+
+# Or disable it permanently
+sc config mosquitto start= disabled
+```
+
+**Verification**: After stopping the host service, test again:
+
 ```bash
-# Check logs
-docker-compose logs
+# Publish a test message
+mosquitto_pub -h 127.0.0.1 -p 1883 -t "rtl_433/test/events" -m "test message"
 
-# Rebuild images
-docker-compose build --no-cache
-
-# Reset (WARNING: deletes data)
-docker-compose down -v
-docker-compose up -d
+# Check Docker container logs (should show the message)
+docker logs mqtt-broker --tail 20
 ```
 
-### No data appearing in InfluxDB
-1. Check MQTT data is arriving: `mosquitto_sub -h localhost -t "rtl_433/#"`
-2. Check bridge logs: `docker logs weather-mqtt-bridge`
-3. Verify InfluxDB token is correct in `docker-compose.yml`
+### RTL_433 Can't Connect to MQTT
 
-### MQTT Connection Refused
-1. Check if Mosquitto is running: `docker-compose ps`
-2. Test connection: `mosquitto_pub -h localhost -t test -m "hello"`
-3. Check firewall rules (port 1883)
+- Verify server IP address is correct
+- Check firewall allows port 1883
+- Test with: `telnet <SERVER_IP> 1883`
+- Ensure no other MQTT broker is running on the same port (see above)
 
-### High CPU/Memory Usage
-- InfluxDB: Large number of unique tags can cause issues
-- Monitor with: `docker stats`
+### No Data in InfluxDB
 
-## Performance Tips
+1. Check MQTT broker is receiving data:
+   ```bash
+   docker exec -it mqtt-broker mosquitto_sub -t "rtl_433/#" -v
+   ```
 
-1. **Reduce MQTT Message Frequency**: Adjust RTL_433 transmit interval
-2. **Enable InfluxDB Retention Policies**: Delete old data automatically
-3. **Use Tags Wisely**: Keep number of unique tag combinations low
-4. **Batch Writes**: The bridge batches multiple readings together
+2. Check Telegraf logs:
+   ```bash
+   docker-compose logs telegraf
+   ```
 
-## Additional Resources
+3. Verify topic names match in RTL_433 output and Telegraf config
 
-- [Mosquitto Documentation](https://mosquitto.org/documentation/)
-- [InfluxDB Documentation](https://docs.influxdata.com/influxdb/latest/)
-- [RTL_433 Project](https://github.com/merbanan/rtl_433)
-- [MQTT Specification](https://mqtt.org/)
+4. Query InfluxDB directly from command line:
 
-## Quick Troubleshooting
+   **Using the helper script (Windows PowerShell - Recommended):**
+   ```powershell
+   # Query latest temperature data
+   .\query_weather.ps1 -Limit 10 -Field "temperature_C"
 
-### System Not Working?
+   # Query humidity data
+   .\query_weather.ps1 -Limit 20 -Field "humidity"
 
-**1. Check if Docker is running:**
-```powershell
-docker ps
+   # Available fields: temperature_C, humidity, wind_avg_km_h, wind_dir_deg,
+   #                   rain_mm, light_lux, uvi, battery_ok
+   ```
+
+   **Using curl directly (Windows PowerShell):**
+   ```powershell
+   # Note: Use curl.exe to avoid PowerShell alias issues
+   # Replace YYYY-MM-DD with actual dates
+   curl.exe -s -X POST "http://localhost:8086/api/v2/query?org=weather" `
+     -H "Authorization: Token my-super-secret-auth-token" `
+     -H "Content-Type: application/vnd.flux" `
+     -H "Accept: application/csv" `
+     -d "from(bucket:\`"weather_data\`") |> range(start: 2026-01-09T00:00:00Z, stop: 2026-01-09T23:59:59Z) |> filter(fn: (r) => r._field == \`"temperature_C\`") |> limit(n: 10)"
+   ```
+
+   **Using bash/Git Bash (Linux or Windows with Git Bash):**
+   ```bash
+   # Query with absolute timestamps (recommended)
+   docker exec influxdb influx query 'from(bucket:"weather_data") |> range(start: 2026-01-09T00:00:00Z, stop: 2026-01-10T00:00:00Z) |> limit(n: 10)' --org weather --token my-super-secret-auth-token
+   ```
+
+5. Check all measurements in InfluxDB:
+   ```bash
+   # List all measurements
+   docker exec influxdb influx query 'import "influxdata/influxdb/schema" schema.measurements(bucket:"weather_data")' --org weather --token my-super-secret-auth-token
+
+   # Count total records
+   docker exec influxdb influx query 'from(bucket:"weather_data") |> range(start: -24h) |> count()' --org weather --token my-super-secret-auth-token
+   ```
+
+### Services Won't Start
+
+- Check Docker is running
+- Verify ports 1883, 8086 are not in use by other applications
+- Check logs: `docker-compose logs`
+
+## Project Structure
+
+```
+weather_station_server_claude/
+├── docker-compose.yml           # Main Docker Compose configuration
+├── mosquitto/
+│   └── config/
+│       └── mosquitto.conf       # MQTT broker configuration
+├── telegraf/
+│   └── telegraf.conf           # Telegraf configuration (MQTT → InfluxDB)
+├── .gitignore
+└── README.md                    # This file
 ```
 
-If you get "cannot connect to Docker daemon", start Docker Desktop.
+## Network Ports
 
-**2. Containers not running?**
-```powershell
-docker compose up -d
-```
+- **1883**: MQTT (Mosquitto)
+- **9001**: MQTT WebSockets (Mosquitto)
+- **8086**: InfluxDB Web UI and API
+- **3000**: Grafana (when enabled)
+- **8123**: Home Assistant (when enabled)
 
-**3. No data appearing in InfluxDB?**
+## Data Persistence
 
-Check if MQTT is receiving data:
-```powershell
-docker exec weather-mosquitto mosquitto_sub -h localhost -t "rtl_433/#" -C 1
-```
+Data is persisted in Docker volumes:
+- `influxdb-data`: All time-series data
+- `influxdb-config`: InfluxDB configuration
+- `mosquitto/data`: MQTT persistence
+- `mosquitto/log`: MQTT logs
 
-If you see messages, check the bridge logs:
-```powershell
-docker logs weather-mqtt-bridge
-```
+These volumes survive container restarts but will be deleted with `docker-compose down -v`.
 
-**4. InfluxDB says 404 Error?**
+## Cross-Platform Notes
 
-InfluxDB 1.8 doesn't have a web UI. Use the API or install Grafana:
-```powershell
-# Test API
-Invoke-WebRequest http://localhost:8086/ping
+This setup works on both Windows and Linux with Docker. The only difference:
 
-# Query data via CLI
-docker exec weather-influxdb influx -database weather_data -execute 'SHOW MEASUREMENTS'
-```
+- **Windows**: Use `./rtl_433.exe` and Windows paths
+- **Linux**: Use `rtl_433` and Unix paths
 
-**5. Can't find docker compose files?**
-
-They're stored in Docker volumes, not as regular folders:
-```powershell
-docker volume ls
-docker volume inspect weather-station-server-1_influxdb_data
-```
-
-**6. Lost data / need to reset?**
-
-⚠️ **WARNING**: This deletes all data!
-```powershell
-docker compose down -v
-docker compose up -d
-```
-
-### Common Questions
-
-**Q: How do I stop the system without losing data?**
-```powershell
-docker compose stop  # Pauses containers, keeps data
-docker compose start # Resumes with all data intact
-```
-
-**Q: How do I see logs?**
-```powershell
-docker compose logs -f           # All containers
-docker logs -f weather-mqtt-bridge    # Just the bridge
-docker logs -f weather-influxdb       # Just InfluxDB
-```
-
-**Q: How do I add more weather stations?**
-
-Just publish to different MQTT topics:
-```powershell
-# Station 1
-mosquitto_pub -h localhost -t "rtl_433/devices/Station1" -m '{"temperature": 20, "humidity": 45}'
-
-# Station 2  
-mosquitto_pub -h localhost -t "rtl_433/devices/Station2" -m '{"temperature": 22, "humidity": 48}'
-```
-
-Each creates a separate measurement in InfluxDB automatically.
+The Docker containers run identically on both platforms.
 
 ## License
 
-This project is provided as-is for personal use.
-
----
-
-**Last Updated**: January 5, 2026
-**Status**: ✅ Tested and Working - All 3 containers running, data flowing correctly to InfluxDB
+This project configuration is provided as-is for personal use.

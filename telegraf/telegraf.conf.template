@@ -1,0 +1,76 @@
+# Telegraf Configuration for RTL_433 Weather Station Data
+
+[agent]
+  interval = "10s"
+  round_interval = true
+  metric_batch_size = 1000
+  metric_buffer_limit = 10000
+  collection_jitter = "0s"
+  flush_interval = "10s"
+  flush_jitter = "0s"
+  precision = "0s"
+  hostname = ""
+  omit_hostname = false
+
+###############################################################################
+#                            INPUT PLUGINS                                    #
+###############################################################################
+
+# Subscribe to MQTT topic for RTL_433 data
+[[inputs.mqtt_consumer]]
+  ## MQTT broker URLs
+  servers = ["tcp://mosquitto:1883"]
+
+  ## Topics to subscribe to
+  topics = [
+    "rtl_433/+/events",
+    "rtl_433/#"
+  ]
+
+  ## QoS policy for messages
+  qos = 0
+
+  ## Connection timeout
+  connection_timeout = "30s"
+
+  ## Data format
+  data_format = "json"
+
+  ## Measurement name
+  name_override = "rtl433"
+
+  ## Extract tags from these JSON fields
+  tag_keys = ["model", "id", "channel", "battery_ok", "mic"]
+
+  ## Parse timestamp from JSON
+  json_time_key = "time"
+  json_time_format = "2006-01-02 15:04:05"
+
+  ## String fields (non-numeric)
+  json_string_fields = ["model", "mic", "subtype", "raw_msg"]
+
+###############################################################################
+#                            OUTPUT PLUGINS                                   #
+###############################################################################
+
+# Write to InfluxDB 2.x
+[[outputs.influxdb_v2]]
+  ## InfluxDB URL
+  urls = ["http://influxdb:8086"]
+
+  ## Token for authentication
+  token = "${INFLUXDB_ADMIN_TOKEN}"
+
+  ## Organization
+  organization = "${INFLUXDB_ORG}"
+
+  ## Destination bucket
+  bucket = "${INFLUXDB_BUCKET}"
+
+  ## Timeout for HTTP messages
+  timeout = "5s"
+
+# Optional: Output to console for debugging (comment out in production)
+[[outputs.file]]
+  files = ["stdout"]
+  data_format = "influx"
