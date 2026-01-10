@@ -57,21 +57,27 @@ services:
     env_file:
       - .env
 
-  # Grafana (commented out for now, uncomment when ready)
-  # grafana:
-  #   image: grafana/grafana:latest
-  #   container_name: grafana
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3000:3000"
-  #   volumes:
-  #     - grafana-data:/var/lib/grafana
-  #   environment:
-  #     - GF_SECURITY_ADMIN_PASSWORD=admin
-  #   depends_on:
-  #     - influxdb
-  #   networks:
-  #     - weather-network
+  # Grafana - Data Visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - INFLUXDB_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN}
+      - INFLUXDB_ORG=${INFLUXDB_ORG}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
+    depends_on:
+      - influxdb
+    networks:
+      - weather-network
+    env_file:
+      - .env
 
   # Home Assistant (commented out for now, uncomment when ready)
   # homeassistant:
@@ -95,5 +101,5 @@ networks:
 volumes:
   influxdb-data:
   influxdb-config:
-  # grafana-data:
+  grafana-data:
   # homeassistant-config:
