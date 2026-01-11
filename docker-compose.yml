@@ -38,6 +38,36 @@ services:
     env_file:
       - .env
 
+  # RTL_433 - RTL-SDR receiver for 433MHz sensors
+  rtl433:
+    image: hertzg/rtl_433:latest
+    container_name: rtl433
+    restart: unless-stopped
+    devices:
+      - "/dev/bus/usb"
+    privileged: false
+    environment:
+      - TZ=${TZ}
+    command:
+      - "-s"
+      - "1000k"
+      - "-f"
+      - "868.3M"
+      - "-R"
+      - "263"
+      - "-Y"
+      - "classic"
+      - "-M"
+      - "level"
+      - "-X"
+      - "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14"
+      - "-F"
+      - "mqtt://mosquitto:1883,retain=0,events=rtl_433[/model][/id]"
+    depends_on:
+      - mosquitto
+    networks:
+      - weather-network
+
   # Telegraf - bridges MQTT to InfluxDB
   telegraf:
     image: telegraf:latest
@@ -52,6 +82,7 @@ services:
       - INFLUXDB_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN}
       - INFLUXDB_ORG=${INFLUXDB_ORG}
       - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
+      - TZ=${TZ}
     networks:
       - weather-network
     env_file:
