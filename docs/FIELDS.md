@@ -17,27 +17,28 @@ These fields are transmitted directly from the Vevor-7in1 weather station via RT
 
 ### Environmental Measurements
 
-| Field | Unit | Description | Typical Range |
-|-------|------|-------------|---------------|
-| `temperature_C` | °C | Ambient air temperature | -40 to 60°C |
-| `humidity` | % | Relative humidity | 0-100% |
-| `wind_avg_km_h` | km/h | Average wind speed over sampling period | 0-150 km/h |
-| `wind_max_km_h` | km/h | Maximum wind gust speed | 0-200 km/h |
-| `wind_dir_deg` | degrees | Wind direction (0° = North, 90° = East) | 0-359° |
-| `rain_mm` | mm | Cumulative rainfall since sensor reset | 0-9999 mm |
-| `light_lux` | lux | Ambient light intensity | 0-200,000 lux |
-| `uvi` | index | UV Index (0-16 scale) | 0-16 |
+| Field | Data Type | Unit | Description | Typical Range |
+|-------|-----------|------|-------------|---------------|
+| `temperature_C` | float | °C | Ambient air temperature | -40 to 60°C |
+| `humidity` | float | % | Relative humidity | 0-100% |
+| `wind_avg_km_h` | float | km/h | Average wind speed over sampling period | 0-150 km/h |
+| `wind_max_km_h` | float | km/h | Maximum wind gust speed | 0-200 km/h |
+| `wind_dir_deg` | float | degrees | Wind direction (0° = North, 90° = East) | 0-359° |
+| `rain_mm` | float | mm | Cumulative rainfall since sensor reset | 0-9999 mm |
+| `light_lux` | float | lux | Ambient light intensity | 0-200,000 lux |
+| `uvi` | float | index | UV Index (0-16 scale) | 0-16 |
+| `pressure_hPa` | float | hPa | Barometric pressure (CSV imports only) | 950-1050 hPa |
 
 ### Device Metadata
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `battery_ok` | integer | Battery status (1 = OK, 0 = Low) |
-| `model` | string | Device model ("Vevor-7in1") |
-| `id` | string | Unique device ID (e.g., "3092") |
-| `channel` | string | RF channel (usually "0") |
-| `mic` | string | Message integrity check ("CHECKSUM") |
-| `mod` | string | Modulation type ("ASK" or "FSK") |
+| Field | Data Type | Description |
+|-------|-----------|-------------|
+| `battery_ok` | float | Battery status (1.0 = OK, 0.0 = Low) |
+| `model` | tag (string) | Device model ("Vevor-7in1" or "CSV_Import") |
+| `id` | tag (string) | Unique device ID (e.g., "3092" or "imported") |
+| `channel` | tag (string) | RF channel (usually "0") |
+| `mic` | tag (string) | Message integrity check ("CHECKSUM") |
+| `mod` | tag (string) | Modulation type ("ASK", "FSK", or "CSV") |
 | `time` | string | Timestamp from sensor (YYYY-MM-DD HH:MM:SS) |
 
 **Note on Modulation**: The weather station transmits each reading twice using different modulation schemes (ASK and FSK). This creates duplicate entries with slightly different timestamps and potentially different values.
@@ -51,6 +52,7 @@ These fields are calculated by the Telegraf Starlark processor before data is st
 ### Temperature-Related
 
 #### `dew_point_C`
+**Data Type**: float
 **Unit**: °C
 **Formula**: Magnus formula
 
@@ -67,6 +69,7 @@ Where:
 **Purpose**: Indicates the temperature at which air becomes saturated and condensation forms. Critical for frost/fog prediction.
 
 #### `feels_like_C`
+**Data Type**: float
 **Unit**: °C
 **Formula**: Context-aware (selects appropriate formula based on conditions)
 
@@ -90,6 +93,7 @@ Where:
 ### Precipitation-Related
 
 #### `daily_rain_current`
+**Data Type**: float
 **Unit**: mm
 **Calculation**: `rain_mm - daily_start_rain`
 **Reset**: Midnight (local timezone)
@@ -100,6 +104,7 @@ Where:
 - Sensor reset detection: If value becomes negative, resets to 0.0
 
 #### `daily_rain_total`
+**Data Type**: float
 **Unit**: mm
 **Calculation**: Previous complete day's rain total
 **Update**: At midnight (local timezone)
@@ -109,6 +114,7 @@ Where:
 **State Management**: Persists in Telegraf memory (lost on restart).
 
 #### `precipitation_rate_mm_h`
+**Data Type**: float
 **Unit**: mm/h
 **Calculation**: `(rain_change / time_elapsed) × 3600`
 **Window**: 5 minutes (300 seconds)
@@ -120,6 +126,7 @@ Where:
 ### Solar-Related
 
 #### `solar_radiation_w_m2`
+**Data Type**: float
 **Unit**: W/m²
 **Formula**: `light_lux / 126.7`
 
@@ -130,6 +137,7 @@ Where:
 ### Wind-Related
 
 #### `wind_speed_beaufort`
+**Data Type**: int
 **Unit**: Beaufort scale (0-12)
 **Calculation**: Lookup table from wind_avg_km_h
 
@@ -154,6 +162,7 @@ Where:
 ### UV-Related
 
 #### `uv_risk_level`
+**Data Type**: int
 **Unit**: Risk category (0-4)
 **Calculation**: Mapping from UVI
 
@@ -170,6 +179,7 @@ Where:
 ### Device-Related
 
 #### `battery_status_pct`
+**Data Type**: float
 **Unit**: %
 **Calculation**: `battery_ok × 100`
 

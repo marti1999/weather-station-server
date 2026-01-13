@@ -12,6 +12,7 @@ A Docker-based server setup to receive weather station data from RTL_433, store 
 - [Managing the Stack](#managing-the-stack)
 - [Documentation](#documentation)
   - [Data Fields Reference](docs/FIELDS.md) - Raw sensor fields, derived calculations, and dashboard aggregations
+  - [CSV Import Guide](docs/CSV_IMPORT.md) - Importing historical weather data from CSV files
   - [Testing Guide](docs/TESTING.md) - Verification procedures and data flow testing
   - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
   - [Security Guide](docs/SECURITY.md) - Production hardening and best practices
@@ -236,6 +237,41 @@ rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level \
 ```bash
 -F "mqtt://192.168.0.50:1883,retain=0,events=rtl_433/events"
 ```
+
+## Importing Historical Data from CSV
+
+You can import historical weather data from CSV files into InfluxDB using the included Python import script. This is useful for:
+- Backfilling historical data from other weather stations or services
+- Migrating data from previous weather station setups
+- Combining data from multiple sources
+
+### Getting CSV Data
+
+**Weather Underground Stations**: If you have a Weather Underground station, you can export historical data using [the-weather-scraper](https://github.com/Karlheinzniebuhr/the-weather-scraper). The weather-scraper exports data in the exact CSV format required by this import script.
+
+### Quick Import
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Test with dry-run (recommended first)
+python import_csv.py your_data.csv --dry-run
+
+# Import the data
+python import_csv.py your_data.csv
+```
+
+The script automatically:
+- Converts timestamps from Madrid timezone to UTC
+- Transforms compass directions (N, SSE, East, etc.) to degrees
+- Calculates all derived fields (feels-like temperature, wind chill, heat index, Beaufort scale, UV risk levels, etc.)
+- Checks for existing timestamps and skips duplicates
+- Tags imported data as `model=CSV_Import` for easy filtering
+
+**CSV Format**: Comma-delimited with columns: `Date,Time,Temperature_C,Dew_Point_C,Humidity_%,Wind,Speed_kmh,Gust_kmh,Pressure_hPa,Precip_Rate_mm,Precip_Accum_mm,UV,Solar_w/m2`
+
+See the [CSV Import Guide](docs/CSV_IMPORT.md) for detailed instructions, CSV format requirements, field mappings, and troubleshooting.
 
 ## Testing and Verification
 
@@ -471,10 +507,13 @@ weather-station-server/
 │           └── influxdb.yml     # InfluxDB datasource configuration
 ├── docs/
 │   ├── FIELDS.md                # Data fields reference (raw, derived, aggregated)
+│   ├── CSV_IMPORT.md            # CSV import guide for historical data
 │   ├── TESTING.md               # Testing and verification procedures
 │   ├── TROUBLESHOOTING.md       # Common issues and solutions
 │   ├── SECURITY.md              # Security hardening guide
 │   └── GRAFANA.md               # Dashboard guides and customization
+├── import_csv.py                # Python script for importing CSV data
+├── requirements.txt             # Python dependencies for CSV import
 ├── .gitignore
 └── README.md                    # This file
 ```
@@ -502,6 +541,7 @@ These volumes survive container restarts but will be deleted with `docker compos
 This project includes comprehensive documentation in the [docs/](docs/) folder:
 
 - **[FIELDS.md](docs/FIELDS.md)** - Complete data fields reference covering raw sensor readings, derived calculations (formulas included), and dashboard aggregations
+- **[CSV_IMPORT.md](docs/CSV_IMPORT.md)** - Comprehensive guide for importing historical weather data from CSV files, including format requirements, field mappings, and troubleshooting
 - **[TESTING.md](docs/TESTING.md)** - Step-by-step testing procedures to verify data flow through all components
 - **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** - Common issues organized by component with specific solutions and diagnosis commands
 - **[SECURITY.md](docs/SECURITY.md)** - Production hardening guide including MQTT authentication, TLS/SSL, firewall rules, and backup procedures
