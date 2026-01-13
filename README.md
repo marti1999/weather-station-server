@@ -1,6 +1,24 @@
 # Weather Station Server - MQTT + InfluxDB
 
-A Docker-based server setup to receive weather station data from RTL_433, store it in InfluxDB via MQTT, with the ability to add Grafana and Home Assistant later.
+A Docker-based server setup to receive weather station data from RTL_433, store it in InfluxDB via MQTT, and visualize with Grafana dashboards.
+
+## Table of Contents
+
+- [Architecture Overview](#architecture-overview)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Running RTL_433](#running-rtl_433)
+- [Configuration Details](#configuration-details)
+- [Managing the Stack](#managing-the-stack)
+- [Documentation](#documentation)
+  - [Data Fields Reference](docs/FIELDS.md) - Raw sensor fields, derived calculations, and dashboard aggregations
+  - [Testing Guide](docs/TESTING.md) - Verification procedures and data flow testing
+  - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
+  - [Security Guide](docs/SECURITY.md) - Production hardening and best practices
+  - [Grafana Dashboards](docs/GRAFANA.md) - Dashboard guides and customization
+- [Project Structure](#project-structure)
+- [Network Ports](#network-ports)
+- [Data Persistence](#data-persistence)
 
 ## Architecture Overview
 
@@ -52,11 +70,14 @@ Update these values in `.env`:
 - `TZ` - Set your timezone (e.g., `Europe/Madrid`, `America/New_York`, `Asia/Tokyo`)
 
 **Timezone Configuration**:
-The `TZ` environment variable is **required** because rtl_433 uses OS time APIs for timestamp formatting:
-- On Windows: OS returns local time by default
-- On Linux: OS returns UTC unless timezone is configured
+The `TZ` environment variable is **critical** for correct timestamp handling and daily rain reset timing:
+- Sets timezone for RTL_433 timestamp formatting
+- Used by Telegraf for parsing JSON timestamps
+- Controls when daily rain counters reset (midnight in your local timezone)
 
-Setting `TZ` ensures consistent and correct timestamp handling across all platforms. Use standard IANA timezone format (e.g., `Europe/Madrid`, `America/New_York`).
+Use standard IANA timezone format (e.g., `Europe/Madrid`, `America/New_York`, `Asia/Tokyo`).
+
+**Important Limitation**: The Telegraf Starlark processor has a hardcoded timezone offset (currently set to UTC+1 for Europe/Madrid winter). When DST changes occur, you must manually update the `tz_offset` variable in [telegraf/telegraf.conf](telegraf/telegraf.conf) line 98. See [FIELDS.md](docs/FIELDS.md#timezone-configuration) for detailed instructions.
 
 **Security Note**: The `.env` file contains sensitive credentials and is excluded from git via `.gitignore`.
 
@@ -65,8 +86,7 @@ Setting `TZ` ensures consistent and correct timestamp handling across all platfo
 Navigate to the project directory and start all services:
 
 ```bash
-cd C:\Users\mcaix\Documents\weather_station_server_claude
-docker-compose up -d
+docker compose up -d
 ```
 
 This will start:
@@ -76,21 +96,21 @@ This will start:
 - Telegraf (runs in background, no exposed ports)
 - Grafana dashboard on port 3000
 
-### 2. Verify Services Are Running
+### 3. Verify Services Are Running
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 All services should show status "Up".
 
-### 3. Access InfluxDB Web UI
+### 4. Access InfluxDB Web UI
 
 Open your browser and go to: http://localhost:8086
 
 Login credentials:
 - Username: `admin`
-- Password: `adminpassword123`
+- Password: Value of `INFLUXDB_ADMIN_PASSWORD` from `.env`
 - Organization: `weather`
 - Bucket: `weather_data`
 
@@ -112,20 +132,30 @@ The Docker Compose stack includes an rtl_433 container. This is the easiest opti
 
 **Setup:**
 
-1. Find your RTL-SDR USB device path:
-   - **Linux**: Run `lsusb` to find bus and device numbers (e.g., Bus 001 Device 007 → `/dev/bus/usb/001/007`)
-   - **Windows**: Docker Desktop handles USB passthrough automatically in most cases
+1. **USB Device Access**: By default, all USB devices are accessible to the rtl_433 container via `privileged: true` in [docker compose.yml](docker compose.yml). This works on most systems without additional configuration.
 
-2. Update the device path in [docker-compose.yml](docker-compose.yml):
+   **Optional - Restrict to specific USB device**: If you want to expose only one USB device instead of all:
+   - **Linux**: Run `lsusb` to find bus and device numbers (e.g., Bus 001 Device 007 → `/dev/bus/usb/001/007`)
+   - Update [docker compose.yml](docker compose.yml):
+     ```yaml
+     rtl433:
+       # Comment out or remove the privileged line
+       # privileged: true
+       devices:
+         - "/dev/bus/usb/001/007:/dev/bus/usb/001/007"  # Your specific device
+     ```
+
+2. **Update the device filter** in [docker compose.yml](docker compose.yml) under the rtl_433 `command` section:
+
+   The critical parameter is the `-X` flag with the `match={96}0c14` filter:
    ```yaml
-   rtl433:
-     devices:
-       - "/dev/bus/usb/001/007"  # Update with your device path
+   command: >
+     -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14"
    ```
 
-3. Customize rtl_433 parameters in [docker-compose.yml](docker-compose.yml) under the `command` section for your specific weather station
+   **Important**: The `match={96}0c14` ensures only messages from your specific weather station (device ID `0c14`) are decoded. This prevents interference from neighbor's devices on the same frequency. Update `0c14` to match your station's ID (visible in raw RTL_433 output).
 
-4. Start the stack: `docker-compose up -d`
+3. Start the stack: `docker compose up -d`
 
 **Advantages**: No manual rtl_433 commands needed, automatic restart, integrated with Docker stack
 
@@ -133,31 +163,47 @@ The Docker Compose stack includes an rtl_433 container. This is the easiest opti
 
 Run rtl_433 directly on the host machine where Docker is running.
 
-```bash
-rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level \
-  -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" \
-  -F "mqtt://localhost:1883,retain=0,events=rtl_433[/model][/id]"
-```
+**Setup:**
+
+1. **Disable the rtl_433 container** in [docker compose.yml](docker compose.yml) by commenting it out or removing the service definition.
+
+2. **Run rtl_433 manually** with the device filter:
+
+   ```bash
+   rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level \
+     -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" \
+     -F "mqtt://localhost:1883,retain=0,events=rtl_433[/model][/id]"
+   ```
+
+   **Important**: The `match={96}0c14` filter ensures only your weather station (device ID `0c14`) is decoded, preventing interference from neighbor's devices. Update `0c14` to your station's ID.
 
 **MQTT Broker Address**: Use `localhost` or `127.0.0.1` since the MQTT broker is running on the same machine.
 
-**Advantages**: Simpler troubleshooting, no USB passthrough needed
+**Advantages**: Simpler troubleshooting, no USB passthrough needed, easier to see rtl_433 output directly
 
 #### Option 3: On a Different Machine (Client Machine)
 
 Run rtl_433 on a separate machine (e.g., a Raspberry Pi near your antenna) and send data over the network to your Docker server.
 
-```bash
-rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level \
-  -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" \
-  -F "mqtt://192.168.0.50:1883,retain=0,events=rtl_433[/model][/id]"
-```
+**Setup:**
+
+1. **Disable the rtl_433 container** in [docker compose.yml](docker compose.yml) on the Docker server by commenting it out or removing the service definition.
+
+2. **Run rtl_433 on the remote machine** with the device filter:
+
+   ```bash
+   rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level \
+     -X "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14" \
+     -F "mqtt://192.168.0.50:1883,retain=0,events=rtl_433[/model][/id]"
+   ```
+
+   **Important**: The `match={96}0c14` filter ensures only your weather station (device ID `0c14`) is decoded, preventing interference from neighbor's devices. Update `0c14` to your station's ID.
 
 **MQTT Broker Address**: Use the IP address of the machine running Docker (e.g., `192.168.0.50`). Find it with:
 - **Linux**: `ip addr` or `hostname -I`
 - **Windows**: `ipconfig` (look for IPv4 Address)
 
-**Advantages**: RTL-SDR can be located near your antenna for better reception
+**Advantages**: RTL-SDR can be located near your antenna for better reception, separates processing load
 
 ### Command Parameters Explained
 
@@ -191,36 +237,26 @@ rtl_433 -s 1000k -f 868.3M -R 263 -Y classic -M level \
 -F "mqtt://192.168.0.50:1883,retain=0,events=rtl_433/events"
 ```
 
-## Testing the Data Flow
+## Testing and Verification
 
-### 1. Monitor MQTT Messages
+After starting the stack, verify that data is flowing correctly through all components. See the [Testing Guide](docs/TESTING.md) for detailed verification procedures including:
 
-Install an MQTT client to view messages:
+- Monitoring MQTT messages
+- Checking InfluxDB data storage
+- Validating Telegraf processing
+- Verifying Grafana dashboards
+- Performance benchmarks
 
+Quick verification:
 ```bash
-# Using mosquitto_sub (if installed)
-mosquitto_sub -h localhost -t "rtl_433/#" -v
-
-# Or use Docker
+# Monitor MQTT messages
 docker exec -it mqtt-broker mosquitto_sub -t "rtl_433/#" -v
+
+# Check Telegraf logs
+docker compose logs -f telegraf
 ```
 
-You should see JSON messages from your weather station.
-
-### 2. Check InfluxDB Data
-
-1. Go to http://localhost:8086
-2. Click "Data Explorer" (icon on the left sidebar)
-3. Select bucket: `weather_data`
-4. You should see measurements from your weather station
-
-### 3. Check Telegraf Logs
-
-```bash
-docker-compose logs -f telegraf
-```
-
-You should see messages being processed.
+Then access InfluxDB at http://localhost:8086 and Grafana at http://localhost:3000 to verify data.
 
 ## Configuration Details
 
@@ -261,8 +297,8 @@ topics = [
 
 #### Change InfluxDB Credentials
 
-1. Edit [docker-compose.yml](docker-compose.yml) and modify the environment variables
-2. Update the token in [telegraf/telegraf.conf](telegraf/telegraf.conf)
+1. Edit `.env` file and modify `INFLUXDB_ADMIN_PASSWORD` and `INFLUXDB_ADMIN_TOKEN`
+2. Restart services: `docker compose restart`
 
 #### Enable MQTT Authentication
 
@@ -279,177 +315,166 @@ Then create a password file:
 docker exec -it mqtt-broker mosquitto_passwd -c /mosquitto/config/passwd <username>
 ```
 
+See the [Security Guide](docs/SECURITY.md) for comprehensive hardening steps.
+
+### Data Fields
+
+The system processes weather station data through multiple stages:
+
+1. **Raw Sensor Fields**: Direct measurements from the weather station (temperature, humidity, wind, rain, UV, light)
+2. **Derived Fields**: Calculated by Telegraf Starlark processor before storage:
+   - Dew point (Magnus formula)
+   - Feels-like temperature (wind chill or heat index)
+   - Daily rain tracking (current day accumulation and previous day total)
+   - Precipitation rate (5-minute rolling window)
+   - Solar radiation (converted from lux)
+   - Beaufort wind scale, UV risk level, battery percentage
+3. **Dashboard Aggregations**: Calculated on-the-fly in Grafana (daily avg/max/min for monthly trends)
+
+All derived fields are stored in InfluxDB for historical querying and consistency across dashboards.
+
+See the [Data Fields Reference](docs/FIELDS.md) for complete formulas, calculations, and field descriptions.
+
 ## Managing the Stack
 
 ### View Logs
 
 ```bash
 # All services
-docker-compose logs -f
+docker compose logs -f
 
 # Specific service
-docker-compose logs -f mosquitto
-docker-compose logs -f influxdb
-docker-compose logs -f telegraf
+docker compose logs -f mosquitto
+docker compose logs -f influxdb
+docker compose logs -f telegraf
 ```
 
 ### Stop Services
 
 ```bash
-docker-compose stop
+docker compose stop
 ```
 
 ### Restart Services
 
 ```bash
-docker-compose restart
+docker compose restart
 ```
 
 ### Stop and Remove Everything
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Stop and Remove Including Data
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
 
-## Adding Grafana (Future)
+## Grafana Dashboards
 
-To add Grafana for visualization:
+Grafana is included in the stack and provides two pre-configured dashboards for weather data visualization:
 
-1. Edit [docker-compose.yml](docker-compose.yml)
-2. Uncomment the `grafana` service section
-3. Uncomment `grafana-data` in the volumes section
-4. Run: `docker-compose up -d`
-5. Access Grafana at http://localhost:3000 (default login: admin/admin)
+1. **Weather Station Dashboard** - Real-time 24-hour view with all sensors
+2. **Weather Monthly Trends** - 30-day historical analysis with daily aggregations
+
+### Access Grafana
+
+Open http://localhost:3000
+
+Login credentials:
+- Username: `admin`
+- Password: Value of `GRAFANA_ADMIN_PASSWORD` from `.env`
+
+**Important**: Change the default password after first login.
+
+### Available Panels
+
+The dashboards display:
+- **Temperature**: Actual, dew point, and feels-like temperature
+- **Humidity**: Relative humidity percentage
+- **Wind**: Speed, direction, and gusts
+- **Precipitation**: Daily accumulation and current rate
+- **UV Index**: With color-coded risk levels
+- **Solar Radiation**: Calculated from light sensor
+- **Pressure**: Barometric pressure (if available)
+
+All dashboards are automatically provisioned from JSON files in `grafana/provisioning/dashboards/` and use the InfluxDB datasource configured via environment variables.
+
+See the [Grafana Dashboards Guide](docs/GRAFANA.md) for detailed information on:
+- Dashboard features and customization
+- Panel configurations and queries
+- Creating custom dashboards
+- Troubleshooting visualization issues
+- Advanced features (alerts, annotations, variables)
 
 ## Adding Home Assistant (Future)
 
 To add Home Assistant:
 
-1. Edit [docker-compose.yml](docker-compose.yml)
+1. Edit [docker compose.yml](docker compose.yml)
 2. Uncomment the `homeassistant` service section
 3. Uncomment `homeassistant-config` in the volumes section
-4. Run: `docker-compose up -d`
+4. Run: `docker compose up -d`
 5. Access Home Assistant at http://localhost:8123
 
 **Note**: Home Assistant uses `network_mode: host` which works differently on Windows vs Linux. On Windows, you may need to change this to bridge mode and adjust port mappings.
 
 ## Troubleshooting
 
-### Messages Not Reaching Docker Container (Windows)
+If you encounter issues, see the [Troubleshooting Guide](docs/TROUBLESHOOTING.md) for comprehensive solutions organized by component:
 
-**Problem**: `mosquitto_pub -h 127.0.0.1 -p 1883` connects successfully but messages don't appear in the Docker container logs.
+- **Container Issues**: Services won't start, port conflicts, resource limits
+- **MQTT Issues**: Messages not reaching broker, connection failures
+- **InfluxDB Issues**: No data storage, query errors, retention policies
+- **Telegraf Issues**: Processing errors, MQTT subscription problems
+- **Grafana Issues**: Dashboard not loading, "No Data" errors, duplicate values
+- **RTL_433 Issues**: Device detection, signal quality, decoding errors
+- **Timezone Issues**: Daily rain reset timing, timestamp display
+- **Performance Issues**: Slow queries, high memory usage
 
-**Cause**: Another Mosquitto broker is running on the host machine (Windows service) and intercepting connections to `127.0.0.1:1883`.
-
-**Solution**: Stop the host Mosquitto service before using the Docker container:
-
-```powershell
-# Check if Mosquitto is running on the host
-netstat -ano | findstr ":1883"
-
-# If you see multiple PIDs, check for mosquitto.exe
-tasklist | findstr mosquitto
-
-# Stop the Windows service
-net stop mosquitto
-
-# Or disable it permanently
-sc config mosquitto start= disabled
-```
-
-**Verification**: After stopping the host service, test again:
-
+Quick checks:
 ```bash
-# Publish a test message
-mosquitto_pub -h 127.0.0.1 -p 1883 -t "rtl_433/test/events" -m "test message"
+# Check all services are running
+docker compose ps
 
-# Check Docker container logs (should show the message)
-docker logs mqtt-broker --tail 20
+# View logs for errors
+docker compose logs -f
+
+# Test MQTT connection
+docker exec -it mqtt-broker mosquitto_sub -t "rtl_433/#" -v
+
+# Query InfluxDB for recent data
+docker exec influxdb influx query 'from(bucket:"weather_data") |> range(start: -1h) |> limit(n: 5)' --org weather --token $INFLUXDB_ADMIN_TOKEN
 ```
-
-### RTL_433 Can't Connect to MQTT
-
-- Verify server IP address is correct
-- Check firewall allows port 1883
-- Test with: `telnet <SERVER_IP> 1883`
-- Ensure no other MQTT broker is running on the same port (see above)
-
-### No Data in InfluxDB
-
-1. Check MQTT broker is receiving data:
-   ```bash
-   docker exec -it mqtt-broker mosquitto_sub -t "rtl_433/#" -v
-   ```
-
-2. Check Telegraf logs:
-   ```bash
-   docker-compose logs telegraf
-   ```
-
-3. Verify topic names match in RTL_433 output and Telegraf config
-
-4. Query InfluxDB directly from command line:
-
-   **Using the helper script (Windows PowerShell - Recommended):**
-   ```powershell
-   # Query latest temperature data
-   .\query_weather.ps1 -Limit 10 -Field "temperature_C"
-
-   # Query humidity data
-   .\query_weather.ps1 -Limit 20 -Field "humidity"
-
-   # Available fields: temperature_C, humidity, wind_avg_km_h, wind_dir_deg,
-   #                   rain_mm, light_lux, uvi, battery_ok
-   ```
-
-   **Using curl directly (Windows PowerShell):**
-   ```powershell
-   # Note: Use curl.exe to avoid PowerShell alias issues
-   # Replace YYYY-MM-DD with actual dates
-   curl.exe -s -X POST "http://localhost:8086/api/v2/query?org=weather" `
-     -H "Authorization: Token my-super-secret-auth-token" `
-     -H "Content-Type: application/vnd.flux" `
-     -H "Accept: application/csv" `
-     -d "from(bucket:\`"weather_data\`") |> range(start: 2026-01-09T00:00:00Z, stop: 2026-01-09T23:59:59Z) |> filter(fn: (r) => r._field == \`"temperature_C\`") |> limit(n: 10)"
-   ```
-
-   **Using bash/Git Bash (Linux or Windows with Git Bash):**
-   ```bash
-   # Query with absolute timestamps (recommended)
-   docker exec influxdb influx query 'from(bucket:"weather_data") |> range(start: 2026-01-09T00:00:00Z, stop: 2026-01-10T00:00:00Z) |> limit(n: 10)' --org weather --token my-super-secret-auth-token
-   ```
-
-5. Check all measurements in InfluxDB:
-   ```bash
-   # List all measurements
-   docker exec influxdb influx query 'import "influxdata/influxdb/schema" schema.measurements(bucket:"weather_data")' --org weather --token my-super-secret-auth-token
-
-   # Count total records
-   docker exec influxdb influx query 'from(bucket:"weather_data") |> range(start: -24h) |> count()' --org weather --token my-super-secret-auth-token
-   ```
-
-### Services Won't Start
-
-- Check Docker is running
-- Verify ports 1883, 8086 are not in use by other applications
-- Check logs: `docker-compose logs`
 
 ## Project Structure
 
 ```
-weather_station_server_claude/
-├── docker-compose.yml           # Main Docker Compose configuration
+weather-station-server/
+├── docker compose.yml           # Main Docker Compose configuration
+├── .env                         # Environment variables (credentials, timezone)
+├── .env.example                 # Template for environment configuration
 ├── mosquitto/
 │   └── config/
 │       └── mosquitto.conf       # MQTT broker configuration
 ├── telegraf/
-│   └── telegraf.conf           # Telegraf configuration (MQTT → InfluxDB)
+│   └── telegraf.conf            # Telegraf configuration with Starlark processor
+├── grafana/
+│   └── provisioning/
+│       ├── dashboards/
+│       │   ├── weather-dashboard.json           # Daily historic dashboard
+│       │   └── weather-monthly-trends.json      # Monthly aggregations
+│       └── datasources/
+│           └── influxdb.yml     # InfluxDB datasource configuration
+├── docs/
+│   ├── FIELDS.md                # Data fields reference (raw, derived, aggregated)
+│   ├── TESTING.md               # Testing and verification procedures
+│   ├── TROUBLESHOOTING.md       # Common issues and solutions
+│   ├── SECURITY.md              # Security hardening guide
+│   └── GRAFANA.md               # Dashboard guides and customization
 ├── .gitignore
 └── README.md                    # This file
 ```
@@ -470,16 +495,21 @@ Data is persisted in Docker volumes:
 - `mosquitto/data`: MQTT persistence
 - `mosquitto/log`: MQTT logs
 
-These volumes survive container restarts but will be deleted with `docker-compose down -v`.
+These volumes survive container restarts but will be deleted with `docker compose down -v`.
 
-## Cross-Platform Notes
+## Documentation
 
-This setup works on both Windows and Linux with Docker. The only difference:
+This project includes comprehensive documentation in the [docs/](docs/) folder:
 
-- **Windows**: Use `./rtl_433.exe` and Windows paths
-- **Linux**: Use `rtl_433` and Unix paths
+- **[FIELDS.md](docs/FIELDS.md)** - Complete data fields reference covering raw sensor readings, derived calculations (formulas included), and dashboard aggregations
+- **[TESTING.md](docs/TESTING.md)** - Step-by-step testing procedures to verify data flow through all components
+- **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** - Common issues organized by component with specific solutions and diagnosis commands
+- **[SECURITY.md](docs/SECURITY.md)** - Production hardening guide including MQTT authentication, TLS/SSL, firewall rules, and backup procedures
+- **[GRAFANA.md](docs/GRAFANA.md)** - Detailed dashboard guides, panel configurations, query examples, customization instructions, and advanced features
 
-The Docker containers run identically on both platforms.
+## Cross-Platform Support
+
+This setup works on both Windows and Linux with Docker. All services run identically in containers regardless of host OS. The only platform-specific considerations are USB device paths for RTL-SDR (documented in the RTL_433 section above).
 
 ## License
 
