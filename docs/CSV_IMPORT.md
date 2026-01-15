@@ -9,6 +9,7 @@ Comprehensive guide for importing historical weather data from CSV files into In
 - [Field Mapping](#field-mapping)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Outlier Detection and Correction](#outlier-detection-and-correction)
 - [Data Transformations](#data-transformations)
 - [Derived Field Calculations](#derived-field-calculations)
 - [Verification](#verification)
@@ -23,7 +24,8 @@ The CSV import script (`import_csv.py`) allows you to bulk-load historical weath
 - **Timezone conversion** from Madrid (Europe/Madrid) to UTC
 - **Compass direction conversion** from abbreviations (N, SSE, etc.) to degrees (0-359)
 - **Derived field calculation** matching live sensor formulas
-- **Duplicate detection** to prevent overwriting existing data
+- **Duplicate detection** to prevent overwriting existing data (with optional overwrite mode)
+- **Outlier detection and correction** using adaptive statistical methods
 - **Batch processing** for efficient imports (1000 points per batch)
 - **Data tagging** for filtering (CSV imports tagged as `model=CSV_Import`)
 
@@ -205,7 +207,24 @@ python3 import_csv.py your_data.csv --dry-run
 
 # Actual import
 python3 import_csv.py your_data.csv
+
+# Import with overwrite (replace existing data points)
+python3 import_csv.py your_data.csv --overwrite
+
+# Show detailed outlier corrections
+python3 import_csv.py your_data.csv --show-outlier-fixes
+
+# Combine options
+python3 import_csv.py your_data.csv --dry-run --show-outlier-fixes
 ```
+
+### Command Line Options
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Preview import without writing to database |
+| `--overwrite` | Overwrite existing data points instead of skipping them |
+| `--show-outlier-fixes` | Display detailed information about each outlier correction |
 
 ### Dry Run Mode
 
@@ -317,6 +336,251 @@ Import complete: 0 data points written
 ```
 
 **Behavior:** Existing timestamps are detected and skipped automatically. Only new data points are imported.
+
+### Overwrite Mode
+
+Use `--overwrite` to replace existing data points:
+
+```bash
+python3 import_csv.py import.csv --overwrite
+```
+
+**Output:**
+```
+...
+Overwrite mode: will replace existing data points
+Importing 45537 data points
+------------------------------------------------------------
+Progress: 45537/45537 data points written
+Import complete: 45537 data points written
+```
+
+**Use Cases:**
+- Re-importing corrected CSV data after fixing errors
+- Updating historical data with better quality values
+- Replacing data after adjusting outlier detection parameters
+
+---
+
+## Outlier Detection and Correction
+
+The import script implements sophisticated outlier detection algorithms to identify and correct sensor anomalies in historical weather data. These corrections are applied automatically during import, ensuring data quality without manual intervention.
+
+### Overview
+
+Weather sensors can produce erroneous readings due to interference, hardware glitches, or transmission errors. The script detects two primary types of outliers:
+
+1. **Wind Gust Anomalies** — Sudden unrealistic spikes in wind gust measurements
+2. **Precipitation Accumulation Anomalies** — Erroneous jumps in cumulative rainfall data
+
+### 1. Wind Gust Outlier Detection
+
+Wind gust outliers are detected using a dual-criteria approach combining absolute thresholds with adaptive neighbor-based spike detection.
+
+#### 1.1 Absolute Threshold Detection
+
+A wind gust reading $g_i$ is flagged as an outlier if it exceeds the maximum physically plausible threshold:
+
+$$
+g_i > G_{max} \land (\bar{w}_i < 1 \lor g_i > 10 \cdot \bar{w}_i)
+$$
+
+Where:
+- $g_i$ = Wind gust at time $t_i$ (km/h)
+- $\bar{w}_i$ = Average wind speed at time $t_i$ (km/h)
+- $G_{max} = 80$ km/h (configurable threshold)
+
+This condition triggers when gusts exceed 80 km/h while the average wind speed is either very low (< 1 km/h) or the gust is more than 10× the average wind — a physically implausible scenario indicating sensor error.
+
+#### 1.2 Adaptive Spike Detection
+
+For gusts below the absolute threshold, the script employs a neighborhood-based spike detection algorithm. Given a sequence of gust measurements, we search for "calm" reference values before and after the suspected outlier:
+
+$$
+\mathcal{C}_{prev} = \{g_j : j < i \land g_j < \theta_{calm}\}
+$$
+
+$$
+\mathcal{C}_{next} = \{g_k : k > i \land g_k < \theta_{calm}\}
+$$
+
+Where $\theta_{calm} = 10$ km/h defines the calm wind threshold.
+
+The algorithm selects the nearest calm value from each set:
+
+$$
+c_{prev} = \max\{g_j \in \mathcal{C}_{prev} : j = \max\{k : k < i \land g_k < \theta_{calm}\}\}
+$$
+
+$$
+c_{next} = \min\{g_k \in \mathcal{C}_{next} : k = \min\{j : j > i \land g_j < \theta_{calm}\}\}
+$$
+
+A spike is detected when:
+
+$$
+g_i > 15 \land \bar{c} < 5 \land g_i > 5 \cdot \bar{c}
+$$
+
+Where the calm reference average is:
+
+$$
+\bar{c} = \frac{c_{prev} + c_{next}}{2}
+$$
+
+#### 1.3 Correction Method
+
+When an outlier is detected, the corrected value $\hat{g}_i$ is computed as the mean of the previous $n$ valid calm readings:
+
+$$
+\hat{g}_i = \frac{1}{|\mathcal{V}|} \sum_{g_j \in \mathcal{V}} g_j
+$$
+
+Where $\mathcal{V}$ contains up to $n=5$ previously corrected calm values ($g_j < \theta_{calm}$), ensuring that consecutive outliers don't propagate errors through the correction chain.
+
+**Example:**
+
+| Time | Original Gust | Corrected Gust | Status |
+|------|--------------|----------------|--------|
+| 09:44 PM | 2.09 | 2.09 | Valid |
+| 09:49 PM | 27.19 | 2.09 | Outlier → Corrected |
+| 09:54 PM | 20.92 | 2.09 | Outlier → Corrected |
+| 09:59 PM | 0.00 | 0.00 | Valid |
+
+### 2. Precipitation Accumulation Outlier Detection
+
+Precipitation accumulation outliers require special handling because the data is cumulative — each reading represents total rainfall since midnight. A sensor error creates a permanent offset in all subsequent readings if not corrected.
+
+#### 2.1 Trend-Aware Spike Detection
+
+The algorithm maintains two parallel accumulation series:
+
+- $A^{(o)}_i$ — Original sensor accumulation values
+- $A^{(c)}_i$ — Corrected accumulation values
+
+The inter-reading delta is computed from original values:
+
+$$
+\Delta_i = A^{(o)}_i - A^{(o)}_{i-1}
+$$
+
+The maximum allowable delta is scaled by the time interval:
+
+$$
+\Delta_{max}(\tau) = \Delta_{threshold} \cdot \frac{\tau}{5}
+$$
+
+Where:
+- $\tau$ = Time elapsed since previous reading (minutes)
+- $\Delta_{threshold} = 5$ mm (maximum expected rainfall in 5 minutes)
+
+#### 2.2 Adaptive Threshold with Historical Context
+
+To avoid false positives during legitimate heavy rainfall, the algorithm maintains a sliding window of recent rainfall deltas:
+
+$$
+\mathcal{R} = \{\Delta_j : j \in [i-N, i-1] \land \Delta_j > 0\}
+$$
+
+Where $N = 5$ (trend window size).
+
+A reading is classified as an outlier only if it satisfies both conditions:
+
+$$
+\text{is\_outlier} = \begin{cases}
+\text{true} & \text{if } \Delta_i > \Delta_{max}(\tau) \land \Delta_i > \mu_{\mathcal{R}} \cdot \lambda \\
+\text{false} & \text{otherwise}
+\end{cases}
+$$
+
+Where:
+- $\mu_{\mathcal{R}} = \frac{1}{|\mathcal{R}|} \sum_{\Delta_j \in \mathcal{R}} \Delta_j$ (mean of recent positive deltas)
+- $\lambda = 6$ (spike multiplier threshold)
+
+This allows gradual rainfall intensification (e.g., 1mm → 2mm → 3mm → 5mm) while catching sudden unrealistic spikes (e.g., 0mm → 52mm).
+
+#### 2.3 Correction Method
+
+When an accumulation outlier is detected, the erroneous delta is zeroed:
+
+$$
+A^{(c)}_i = A^{(c)}_{i-1} + 0 = A^{(c)}_{i-1}
+$$
+
+The precipitation rate is recalculated from the corrected accumulation:
+
+$$
+R_i = \frac{A^{(c)}_i - A^{(c)}_{i-1}}{\tau / 60} = 0 \text{ mm/h}
+$$
+
+For non-outlier readings, the original delta is preserved:
+
+$$
+A^{(c)}_i = A^{(c)}_{i-1} + \Delta_i
+$$
+
+#### 2.4 Handling Consecutive Outliers
+
+When the algorithm detects an outlier, the erroneous delta is **not** added to the recent history $\mathcal{R}$:
+
+$$
+\mathcal{R}_{i+1} = \begin{cases}
+\mathcal{R}_i & \text{if is\_outlier} \\
+\mathcal{R}_i \cup \{\Delta_i\} & \text{otherwise}
+\end{cases}
+$$
+
+This prevents a chain reaction where one outlier corrupts the trend baseline, allowing subsequent outliers to slip through undetected.
+
+**Example:**
+
+| Time | Original Accum | Delta | Corrected Accum | Status |
+|------|---------------|-------|-----------------|--------|
+| 12:14 AM | 5.0 | 1.0 | 5.0 | Valid |
+| 12:19 AM | 57.4 | 52.4 | 5.0 | Outlier → Zeroed |
+| 12:24 AM | 110.2 | 52.8 | 5.0 | Outlier → Zeroed |
+| 12:29 AM | 57.4 | 0.0 | 5.0 | Valid (flat reading) |
+
+### 3. Viewing Outlier Corrections
+
+Use the `--show-outlier-fixes` flag to display detailed correction information:
+
+```bash
+python3 import_csv.py your_data.csv --show-outlier-fixes --dry-run
+```
+
+**Sample Output:**
+```
+============================================================
+DETAILED OUTLIER FIXES:
+============================================================
+
+--- Wind Gust Outliers (23) ---
+  Row   1847 | 2025/08/15 09:49 PM | Gust:  27.19 ->   2.09 km/h (avg wind: 1.13 km/h)
+  Row   1848 | 2025/08/15 09:54 PM | Gust:  20.92 ->   2.09 km/h (avg wind: 0.32 km/h)
+  Row  35563 | 2025/12/06 12:19 AM | Gust: 129.49 ->   3.22 km/h (avg wind: 0.00 km/h)
+
+--- Precipitation Accumulation Outliers (4) ---
+  Row 35563 | 2025/12/06 12:19 AM | Accum:  57.40 ->   5.00 mm (delta: 52.40 -> 0.00 mm)
+  Row 35564 | 2025/12/06 12:24 AM | Accum: 110.20 ->   5.00 mm (delta: 52.80 -> 0.00 mm)
+
+--- Precipitation Rate Corrections (4) ---
+  Row 35563 | 2025/12/06 12:19 AM | Rate: 629.08 ->   0.00 mm/h
+  Row 35564 | 2025/12/06 12:24 AM | Rate: 633.89 ->   0.00 mm/h
+============================================================
+```
+
+### 4. Algorithm Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `MAX_WIND_GUST_KMH` | 80.0 | Absolute maximum plausible wind gust |
+| `CALM_THRESHOLD` | 10.0 | Wind gust threshold for "calm" classification |
+| `NUM_PREV_VALUES` | 5 | Number of previous values for correction averaging |
+| `MAX_PRECIP_DELTA_MM` | 5.0 | Maximum expected precipitation in 5 minutes |
+| `MAX_PRECIP_RATE_MMH` | 60.0 | Maximum plausible precipitation rate |
+| `TREND_WINDOW` | 5 | Number of recent deltas for trend calculation |
+| `SPIKE_MULTIPLIER` | 6.0 | Threshold multiplier for spike detection |
 
 ---
 
@@ -944,7 +1208,8 @@ The CSV import script provides a robust way to import historical weather data in
 ✅ **Automatic timezone conversion** (Madrid → UTC with DST handling)
 ✅ **Compass direction conversion** (16-point compass + full words → degrees)
 ✅ **Derived field calculation** (feels-like, Beaufort, UV risk, lux)
-✅ **Duplicate detection** (skip existing timestamps)
+✅ **Outlier detection & correction** (wind gust spikes, precipitation anomalies)
+✅ **Duplicate detection** (skip existing timestamps, optional overwrite)
 ✅ **Batch processing** (efficient 1000-point batches)
 ✅ **Data tagging** (`model=CSV_Import` for filtering)
 ✅ **Dry-run mode** (test before import)

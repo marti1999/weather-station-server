@@ -159,7 +159,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"temperature_C\")\n  |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> map(fn: (r) => ({ r with _field: \"avg_temp\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"temperature_C\")\n  |> aggregateWindow(every: windowSize, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"avg_temp\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "A"
         },
         {
@@ -167,7 +167,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"temperature_C\")\n  |> aggregateWindow(every: 1d, fn: max, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> map(fn: (r) => ({ r with _field: \"max_temp\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"temperature_C\")\n  |> aggregateWindow(every: windowSize, fn: max, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"max_temp\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "B"
         },
         {
@@ -175,7 +175,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"temperature_C\")\n  |> aggregateWindow(every: 1d, fn: min, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> map(fn: (r) => ({ r with _field: \"min_temp\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"temperature_C\")\n  |> aggregateWindow(every: windowSize, fn: min, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"min_temp\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "C"
         }
       ],
@@ -321,7 +321,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"humidity\")\n  |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> map(fn: (r) => ({ r with _field: \"avg_humidity\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"humidity\")\n  |> aggregateWindow(every: windowSize, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"avg_humidity\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "A"
         },
         {
@@ -329,7 +329,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"humidity\")\n  |> aggregateWindow(every: 1d, fn: max, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> map(fn: (r) => ({ r with _field: \"max_humidity\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"humidity\")\n  |> aggregateWindow(every: windowSize, fn: max, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"max_humidity\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "B"
         },
         {
@@ -337,7 +337,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"humidity\")\n  |> aggregateWindow(every: 1d, fn: min, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> map(fn: (r) => ({ r with _field: \"min_humidity\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"humidity\")\n  |> aggregateWindow(every: windowSize, fn: min, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"min_humidity\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "C"
         }
       ],
@@ -414,6 +414,10 @@
               {
                 "id": "displayName",
                 "value": "Avg Wind"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "left"
               }
             ]
           },
@@ -433,25 +437,18 @@
               {
                 "id": "displayName",
                 "value": "Max Gust"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "min_wind"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "light-green",
-                  "mode": "fixed"
-                }
               },
               {
-                "id": "displayName",
-                "value": "Min Wind"
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 4
               }
             ]
           }
@@ -482,7 +479,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"wind_avg_km_h\")\n  |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> map(fn: (r) => ({ r with _field: \"avg_wind\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"wind_avg_km_h\")\n  |> aggregateWindow(every: windowSize, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"avg_wind\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "A"
         },
         {
@@ -490,16 +487,8 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"wind_max_km_h\")\n  |> aggregateWindow(every: 1d, fn: max, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> map(fn: (r) => ({ r with _field: \"max_gust\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"wind_max_km_h\")\n  |> aggregateWindow(every: windowSize, fn: max, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"max_gust\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "P8787480E04B9696A"
-          },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"wind_avg_km_h\")\n  |> aggregateWindow(every: 1d, fn: min, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> map(fn: (r) => ({ r with _field: \"min_wind\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
-          "refId": "C"
         }
       ],
       "title": "Wind Trends (Daily)",
@@ -652,7 +641,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"daily_rain_current\")\n  |> aggregateWindow(every: 1d, fn: max, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"daily_rain_current\")\n  |> aggregateWindow(every: windowSize, fn: max, createEmpty: false)\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "A"
         },
         {
@@ -660,7 +649,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"precipitation_rate_mm_h\")\n  |> aggregateWindow(every: 1d, fn: max, createEmpty: false)\n  |> timeShift(duration: -1h)\n  |> map(fn: (r) => ({ r with _field: \"max_rate\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"precipitation_rate_mm_h\")\n  |> aggregateWindow(every: windowSize, fn: max, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"max_rate\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "B"
         }
       ],
