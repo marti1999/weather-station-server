@@ -168,7 +168,7 @@ tags = {
 ### Install Python Dependencies
 
 ```bash
-cd /home/marti/weather-station-server
+cd /path/to/weather-station-server
 
 # Install required libraries
 pip3 install -r requirements.txt

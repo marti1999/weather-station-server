@@ -94,21 +94,48 @@ services:
     container_name: grafana
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3000:3000"  # LAN access + Cloudflare Tunnel for external
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
     environment:
+      # Admin credentials
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      # InfluxDB connection
       - INFLUXDB_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN}
       - INFLUXDB_ORG=${INFLUXDB_ORG}
       - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
+      # Security hardening
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_ALLOW_ORG_CREATE=false
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_COOKIE_SAMESITE=strict
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      # Anonymous read-only access
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      # Server settings (will be overridden by GRAFANA_ROOT_URL if set)
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
     depends_on:
       - influxdb
     networks:
       - weather-network
     env_file:
       - .env
+
+  # Cloudflare Tunnel - Secure external access without port forwarding
+  # Set CLOUDFLARE_TUNNEL_TOKEN in .env (get it from Cloudflare Zero Trust dashboard)
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflare-tunnel
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - grafana
+    networks:
+      - weather-network
 
   # Home Assistant (commented out for now, uncomment when ready)
   # homeassistant:

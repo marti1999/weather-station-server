@@ -8,6 +8,7 @@ Security best practices and recommendations for the weather station server.
 - [Default Security Posture](#default-security-posture)
 - [Production Hardening](#production-hardening)
 - [Network Security](#network-security)
+- [Cloudflare Tunnel (Recommended for Public Access)](#cloudflare-tunnel-recommended-for-public-access)
 - [Credential Management](#credential-management)
 - [Container Security](#container-security)
 - [Monitoring & Auditing](#monitoring--auditing)
@@ -341,6 +342,92 @@ Then access via SSH tunnel or reverse proxy.
 
 ---
 
+## Cloudflare Tunnel (Recommended for Public Access)
+
+Cloudflare Tunnel is the **recommended method** for exposing Grafana to the internet. It's more secure than traditional port forwarding or reverse proxies.
+
+### Why Cloudflare Tunnel?
+
+| Feature | Traditional Port Forward | Reverse Proxy | Cloudflare Tunnel |
+|---------|-------------------------|---------------|-------------------|
+| Exposes home IP | ✅ Yes | ✅ Yes | ❌ No |
+| Requires open ports | ✅ Yes | ✅ Yes | ❌ No |
+| DDoS protection | ❌ No | ❌ No | ✅ Yes |
+| Free SSL certificates | ❌ No | ⚠️ Manual setup | ✅ Automatic |
+| Connection direction | Inbound | Inbound | Outbound only |
+
+### How It Works
+
+```
+Internet → Cloudflare Edge → Encrypted Tunnel → Your Server (outbound connection)
+```
+
+The tunnel runs as a Docker container that maintains an **outbound** connection to Cloudflare. No inbound ports need to be opened on your router.
+
+### Setup Steps
+
+1. **Create Cloudflare account**: https://dash.cloudflare.com
+2. **Add your domain** to Cloudflare (update nameservers at registrar)
+3. **Create tunnel** in [Zero Trust Dashboard](https://one.dash.cloudflare.com/):
+   - **Networks** → **Tunnels** → **Create a tunnel**
+   - Choose **Cloudflared** connector
+   - Copy the tunnel token
+4. **Configure public hostname**:
+   - Subdomain: `grafana`
+   - Domain: `yourdomain.com`
+   - Type: `HTTP`
+   - URL: `grafana:3000`
+5. **Update `.env`**:
+   ```bash
+   CLOUDFLARE_TUNNEL_TOKEN=eyJ...your-token...
+   GRAFANA_ROOT_URL=https://grafana.yourdomain.com
+   ```
+6. **Deploy**: `docker compose up -d`
+
+### Grafana Security Settings
+
+When exposed via tunnel, Grafana is hardened with these settings in `docker-compose.yml`:
+
+```yaml
+environment:
+  # Prevent unauthorized account creation
+  - GF_USERS_ALLOW_SIGN_UP=false
+  - GF_USERS_ALLOW_ORG_CREATE=false
+  # Cookie security (HTTPS)
+  - GF_SECURITY_COOKIE_SECURE=true
+  - GF_SECURITY_COOKIE_SAMESITE=strict
+  - GF_SECURITY_DISABLE_GRAVATAR=true
+  # Anonymous read-only access (optional)
+  - GF_AUTH_ANONYMOUS_ENABLED=true
+  - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+```
+
+**To require login for all users**: Set `GF_AUTH_ANONYMOUS_ENABLED=false`
+
+### Additional Protection: Cloudflare Access
+
+For sensitive dashboards, add Cloudflare Access (Zero Trust) authentication:
+
+1. Go to **Access** → **Applications** → **Add an application**
+2. Select **Self-hosted**
+3. Set application domain: `grafana.yourdomain.com`
+4. Configure identity providers (Email OTP, Google, GitHub, etc.)
+5. Create allow policies for specific users/emails
+
+This adds authentication **before** traffic reaches Grafana.
+
+### Tunnel Monitoring
+
+```bash
+# Check tunnel status
+docker logs cloudflare-tunnel
+
+# Verify connection in Cloudflare dashboard
+# Zero Trust → Networks → Tunnels → Your tunnel → Status should be "Healthy"
+```
+
+---
+
 ## Credential Management
 
 ### Environment Variable Best Practices
@@ -608,7 +695,8 @@ rsync -avz --delete backups/ user@nas:/weather-backups/
 - [ ] Enabled MQTT authentication
 - [ ] Enabled TLS/SSL on MQTT (port 8883)
 - [ ] Configured firewall rules (allow only local network)
-- [ ] Set up reverse proxy with HTTPS for Grafana
+- [ ] Set up Cloudflare Tunnel for external Grafana access (recommended)
+- [ ] Configured Grafana security settings (disable sign-up, secure cookies)
 - [ ] Created limited-scope API tokens for InfluxDB
 - [ ] Implemented Docker network isolation
 - [ ] Configured resource limits on containers
@@ -672,3 +760,5 @@ rsync -avz --delete backups/ user@nas:/weather-backups/
 - **InfluxDB Security**: https://docs.influxdata.com/influxdb/v2/admin/security/
 - **Grafana Security**: https://grafana.com/docs/grafana/latest/setup-grafana/configure-security/
 - **Mosquitto Security**: https://mosquitto.org/documentation/authentication-methods/
+- **Cloudflare Tunnel**: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+- **Cloudflare Access**: https://developers.cloudflare.com/cloudflare-one/policies/access/

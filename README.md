@@ -19,6 +19,7 @@ A Docker-based server setup to receive weather station data from RTL_433, store 
   - [Grafana Dashboards](docs/GRAFANA.md) - Dashboard guides and customization
 - [Project Structure](#project-structure)
 - [Network Ports](#network-ports)
+- [Remote Access via Cloudflare Tunnel](#remote-access-via-cloudflare-tunnel)
 - [Data Persistence](#data-persistence)
 
 ## Architecture Overview
@@ -523,8 +524,32 @@ weather-station-server/
 - **1883**: MQTT (Mosquitto)
 - **9001**: MQTT WebSockets (Mosquitto)
 - **8086**: InfluxDB Web UI and API
-- **3000**: Grafana (when enabled)
+- **3000**: Grafana
 - **8123**: Home Assistant (when enabled)
+
+## Remote Access via Cloudflare Tunnel
+
+The stack includes a Cloudflare Tunnel for secure external access to Grafana without port forwarding or exposing your home IP.
+
+### Current Setup
+
+- **Public URL**: `https://grafana.yourdomain.com` (configure in `.env`)
+- **Access**: Anonymous read-only (viewers can see dashboards without login)
+- **Admin**: Login required to edit dashboards
+
+### How It Works
+
+```
+Internet → Cloudflare Edge → Cloudflare Tunnel (outbound only) → Grafana
+```
+
+Benefits:
+- No port forwarding required on your router
+- Your home IP is never exposed
+- Cloudflare provides DDoS protection and SSL certificates
+- Tunnel connection is outbound-only (more secure)
+
+For setup instructions, configuration options, and security settings, see the [Cloudflare Tunnel section in the Security Guide](docs/SECURITY.md#cloudflare-tunnel-recommended-for-public-access).
 
 ## Data Persistence
 
