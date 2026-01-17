@@ -426,6 +426,50 @@ docker logs cloudflare-tunnel
 # Zero Trust → Networks → Tunnels → Your tunnel → Status should be "Healthy"
 ```
 
+### Tunnel Protocol: HTTP/2 vs QUIC
+
+By default, the docker-compose uses **HTTP/2** protocol for maximum portability:
+
+```yaml
+command: tunnel --protocol http2 run
+```
+
+| Protocol | Pros | Cons |
+|----------|------|------|
+| **HTTP/2** (default) | Works everywhere, no host tuning needed | Slightly higher latency (~10-50ms) |
+| **QUIC** | Lower latency, better multiplexing | Requires host UDP buffer tuning on Linux |
+
+**For a weather dashboard, HTTP/2 is recommended** - the latency difference is negligible for data that updates every few seconds.
+
+#### Optional: Switch to QUIC for Better Performance
+
+If you want slightly better performance and are willing to tune the host system:
+
+1. **Increase UDP buffer sizes on the host** (Linux only):
+   ```bash
+   # Temporary (until reboot)
+   sudo sysctl -w net.core.rmem_max=7500000
+   sudo sysctl -w net.core.wmem_max=7500000
+
+   # Permanent (survives reboot)
+   echo "net.core.rmem_max=7500000" | sudo tee -a /etc/sysctl.conf
+   echo "net.core.wmem_max=7500000" | sudo tee -a /etc/sysctl.conf
+   sudo sysctl -p
+   ```
+
+2. **Update docker-compose.yml** to use QUIC:
+   ```yaml
+   cloudflare-tunnel:
+     command: tunnel run  # Remove --protocol http2
+   ```
+
+3. **Restart the tunnel**:
+   ```bash
+   docker compose restart cloudflare-tunnel
+   ```
+
+Without the buffer tuning, QUIC connections may fail intermittently with 502 errors.
+
 ---
 
 ## Credential Management

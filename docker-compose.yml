@@ -63,6 +63,8 @@ services:
       - "n=Vevor-YT60234,m=FSK_PCM,s=87,l=87,r=89088,match={96}0c14"
       - "-F"
       - "mqtt://mosquitto:1883,retain=0,events=rtl_433[/model][/id]"
+      - "-F"
+      - "log"
     depends_on:
       - mosquitto
     networks:
@@ -88,15 +90,52 @@ services:
     env_file:
       - .env
 
-  # Grafana - Data Visualization
+  # Grafana Public - Read-only access via Cloudflare Tunnel
   grafana:
     image: grafana/grafana:latest
-    container_name: grafana
+    container_name: grafana-public
     restart: unless-stopped
     ports:
-      - "3000:3000"  # LAN access + Cloudflare Tunnel for external
+      - "3000:3000"  # For Cloudflare Tunnel external access
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      # Admin credentials (for initial setup only)
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      # InfluxDB connection
+      - INFLUXDB_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN}
+      - INFLUXDB_ORG=${INFLUXDB_ORG}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
+      # Security hardening for external access
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_ALLOW_ORG_CREATE=false
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_COOKIE_SAMESITE=strict
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      # Anonymous read-only access for external users
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      # Disable login form - anonymous only access
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      # Server settings
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
+    depends_on:
+      - influxdb
+    networks:
+      - weather-network
+    env_file:
+      - .env
+
+  # Grafana Local - Admin access for local management
+  grafana-local:
+    image: grafana/grafana:latest
+    container_name: grafana-local
+    restart: unless-stopped
+    ports:
+      - "3001:3000"  # Localhost-only access for admin
+    volumes:
+      - grafana-local-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
     environment:
       # Admin credentials
@@ -105,17 +144,15 @@ services:
       - INFLUXDB_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN}
       - INFLUXDB_ORG=${INFLUXDB_ORG}
       - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
-      # Security hardening
+      # Local HTTP-friendly settings
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_USERS_ALLOW_ORG_CREATE=false
-      - GF_SECURITY_COOKIE_SECURE=true
-      - GF_SECURITY_COOKIE_SAMESITE=strict
+      - GF_SECURITY_COOKIE_SECURE=false  # Allow HTTP cookies for local access
       - GF_SECURITY_DISABLE_GRAVATAR=true
-      # Anonymous read-only access
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-      # Server settings (will be overridden by GRAFANA_ROOT_URL if set)
-      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
+      # No anonymous access - admin login required
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      # Server settings
+      - GF_SERVER_ROOT_URL=http://localhost:3001
     depends_on:
       - influxdb
     networks:
@@ -160,4 +197,5 @@ volumes:
   influxdb-data:
   influxdb-config:
   grafana-data:
+  grafana-local-data:
   # homeassistant-config:
