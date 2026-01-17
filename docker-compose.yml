@@ -189,6 +189,26 @@ services:
   #   depends_on:
   #     - mosquitto
 
+  # Rain Corrector - Fixes daily rain gaps caused by restarts
+  rain-corrector:
+    build:
+      context: .
+      dockerfile: rain-corrector/Dockerfile
+    container_name: rain-corrector
+    restart: unless-stopped
+    depends_on:
+      - influxdb
+    environment:
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN}
+      - INFLUXDB_ORG=${INFLUXDB_ORG}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
+      - TZ=${TZ}
+    networks:
+      - weather-network
+    env_file:
+      - .env
+
 networks:
   weather-network:
     driver: bridge
