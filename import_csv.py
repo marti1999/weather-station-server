@@ -138,6 +138,57 @@ def calculate_light_lux(solar_radiation_w_m2: float) -> float:
     return round(solar_radiation_w_m2 * 126.7, 2)
 
 
+def convert_daily_precip_to_cumulative_rain(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """
+    Convert daily-resetting Precip_Accum_mm to cumulative rain_mm.
+    
+    The CSV contains Precip_Accum_mm that resets daily at midnight (00:00).
+    InfluxDB stores rain_mm as a continuous historical value that never resets.
+    
+    Algorithm:
+    - Track running offset that accumulates when resets are detected
+    - When current_accum < previous_accum: reset detected, add previous_max to offset
+    - rain_mm = offset + current_accum
+    
+    Returns: rows with Precip_Accum_mm converted to cumulative values
+    """
+    converted_rows = []
+    running_offset = 0.0
+    prev_accum = None
+    daily_max = 0.0
+    
+    for row in rows:
+        converted_row = row.copy()
+        
+        try:
+            current_accum = parse_decimal(row['Precip_Accum_mm'])
+        except (ValueError, KeyError):
+            converted_rows.append(converted_row)
+            continue
+        
+        if prev_accum is not None:
+            if current_accum < prev_accum:
+                # Daily reset detected: accumulation went backwards
+                # Add the previous day's maximum to the running offset
+                running_offset += daily_max
+                daily_max = current_accum
+            else:
+                # Normal case: accumulation increased or stayed flat
+                daily_max = max(daily_max, current_accum)
+        else:
+            # First row: initialize with current value
+            daily_max = current_accum
+        
+        # Convert to cumulative rain_mm
+        cumulative_rain = running_offset + current_accum
+        converted_row['Precip_Accum_mm'] = str(round(cumulative_rain, 2))
+        
+        prev_accum = current_accum
+        converted_rows.append(converted_row)
+    
+    return converted_rows
+
+
 def detect_and_fix_outliers(rows: List[Dict[str, str]], show_fixes: bool = False) -> Tuple[List[Dict[str, str]], dict, List[dict]]:
     """
     Detect and fix outliers in the CSV data.
@@ -385,8 +436,7 @@ def parse_csv_row(row: Dict[str, str]) -> Tuple[int, Dict[str, any], Dict[str, f
     wind_avg_kmh = parse_decimal(row['Speed_kmh'])
     wind_max_kmh = parse_decimal(row['Gust_kmh'])
     pressure_hpa = parse_decimal(row['Pressure_hPa'])
-    precip_rate_mmh = parse_decimal(row['Precip_Rate_mm'])
-    daily_rain_current = parse_decimal(row['Precip_Accum_mm'])
+    rain_mm = parse_decimal(row['Precip_Accum_mm'])  # Already converted to cumulative by convert_daily_precip_to_cumulative_rain()
     uvi = parse_decimal(row['UV'])
     solar_radiation = parse_decimal(row['Solar_w/m2'])
 
@@ -408,7 +458,9 @@ def parse_csv_row(row: Dict[str, str]) -> Tuple[int, Dict[str, any], Dict[str, f
         'host': 'import-script'
     }
 
-    # Fields (19 total)
+    # Fields - simplified rain architecture (16 fields)
+    # Removed fields: daily_rain_current, daily_rain_total, precipitation_rate_mm_h
+    # All rain calculations now done in Grafana using rain_mm
     fields = {
         # Raw sensor fields
         'temperature_C': temp_c,
@@ -416,18 +468,15 @@ def parse_csv_row(row: Dict[str, str]) -> Tuple[int, Dict[str, any], Dict[str, f
         'wind_avg_km_h': wind_avg_kmh,
         'wind_max_km_h': wind_max_kmh,
         'wind_dir_deg': wind_dir,
-        'rain_mm': daily_rain_current,  # Use daily as cumulative for CSV
+        'rain_mm': rain_mm,  # Cumulative historical rain (converted from daily-resetting precip_accum)
         'light_lux': light_lux,
         'uvi': uvi,
         'battery_ok': 1.0,
-        'pressure_hPa': pressure_hpa,  # NEW FIELD
+        'pressure_hPa': pressure_hpa,
 
         # Derived fields
         'dew_point_C': dew_point_c,
         'feels_like_C': feels_like_c,
-        'daily_rain_current': daily_rain_current,
-        'daily_rain_total': 0.0,  # Cannot determine from CSV
-        'precipitation_rate_mm_h': precip_rate_mmh,
         'solar_radiation_w_m2': solar_radiation,
         'wind_speed_beaufort': wind_beaufort,
         'uv_risk_level': uv_risk,
@@ -447,16 +496,27 @@ def get_existing_timestamps(client: InfluxDBClient, start_ns: int, end_ns: int) 
       |> distinct(column: "_time")
     '''
 
-    query_api = client.query_api()
-    result = query_api.query(query, org=INFLUXDB_ORG)
+    try:
+        query_api = client.query_api()
+        result = query_api.query(query, org=INFLUXDB_ORG)
 
-    existing = set()
-    for table in result:
-        for record in table.records:
-            # Convert to nanoseconds
-            existing.add(int(record.get_time().timestamp() * 1_000_000_000))
+        existing = set()
+        for table in result:
+            for record in table.records:
+                try:
+                    # Convert to nanoseconds
+                    ts = record.get_time()
+                    if ts is not None:
+                        existing.add(int(ts.timestamp() * 1_000_000_000))
+                except (KeyError, AttributeError):
+                    # Skip records without _time or if get_time() fails
+                    continue
 
-    return existing
+        return existing
+    except Exception as e:
+        # If query fails (e.g., bucket is empty or connection issue), return empty set
+        print(f"Warning: Could not query existing timestamps: {e}")
+        return set()
 
 def import_csv(csv_file_path: str, dry_run: bool = False, show_outlier_fixes: bool = False, overwrite: bool = False):
     """Import CSV file into InfluxDB"""
@@ -478,6 +538,10 @@ def import_csv(csv_file_path: str, dry_run: bool = False, show_outlier_fixes: bo
         raw_rows = list(reader)
 
     print(f"Read {len(raw_rows)} rows from CSV")
+
+    # Convert daily-resetting precip_accum to cumulative rain_mm
+    print("Converting daily precipitation accumulation to cumulative rain_mm...")
+    raw_rows = convert_daily_precip_to_cumulative_rain(raw_rows)
 
     # Detect and fix outliers
     print("Detecting and fixing outliers...")
