@@ -72,14 +72,13 @@ Update these values in `.env`:
 - `TZ` - Set your timezone (e.g., `Europe/Madrid`, `America/New_York`, `Asia/Tokyo`)
 
 **Timezone Configuration**:
-The `TZ` environment variable is **critical** for correct timestamp handling and daily rain reset timing:
+The `TZ` environment variable is **critical** for correct timestamp handling. Set to `Europe/Madrid` for automatic DST handling:
 - Sets timezone for RTL_433 timestamp formatting
 - Used by Telegraf for parsing JSON timestamps
-- Controls when daily rain counters reset (midnight in your local timezone)
+- Grafana dashboards configured for Europe/Madrid timezone
+- Automatic DST transitions (no manual adjustments needed)
 
 Use standard IANA timezone format (e.g., `Europe/Madrid`, `America/New_York`, `Asia/Tokyo`).
-
-**Important Limitation**: The Telegraf Starlark processor has a hardcoded timezone offset (currently set to UTC+1 for Europe/Madrid winter). When DST changes occur, you must manually update the `tz_offset` variable in [telegraf/telegraf.conf](telegraf/telegraf.conf) line 98. See [FIELDS.md](docs/FIELDS.md#timezone-configuration) for detailed instructions.
 
 **Security Note**: The `.env` file contains sensitive credentials and is excluded from git via `.gitignore`.
 
@@ -293,6 +292,29 @@ docker exec -it mqtt-broker mosquitto_sub -t "rtl_433/#" -v
 docker compose logs -f telegraf
 ```
 
+### Rain Simulation for Testing
+
+Test rain-related features without waiting for actual rainfall using the provided simulator:
+
+```bash
+# Activate Python virtual environment
+source venv/bin/activate
+
+# Install dependencies (first time only)
+pip install -r requirements.txt
+
+# Run simulator in gradual mode (realistic accumulation)
+python scripts/simulate_rain.py --mode gradual
+
+# Run simulator in burst mode (intense rainfall event)
+python scripts/simulate_rain.py --mode burst
+
+# Run simulator in reset mode (sensor reset simulation)
+python scripts/simulate_rain.py --mode reset
+```
+
+The simulator publishes realistic weather station JSON data to the MQTT broker, allowing you to test Grafana dashboard rain calculations, verify daily totals, and validate precipitation rate queries without actual weather events.
+
 Then access InfluxDB at http://localhost:8086 and Grafana at http://localhost:3000 to verify data.
 
 ## Configuration Details
@@ -362,13 +384,14 @@ The system processes weather station data through multiple stages:
 2. **Derived Fields**: Calculated by Telegraf Starlark processor before storage:
    - Dew point (Magnus formula)
    - Feels-like temperature (wind chill or heat index)
-   - Daily rain tracking (current day accumulation and previous day total)
-   - Precipitation rate (5-minute rolling window)
    - Solar radiation (converted from lux)
    - Beaufort wind scale, UV risk level, battery percentage
-3. **Dashboard Aggregations**: Calculated on-the-fly in Grafana (daily avg/max/min for monthly trends)
+3. **Dashboard Aggregations**: Calculated on-the-fly in Grafana:
+   - Daily/monthly temperature, humidity, and wind trends
+   - Daily rain totals (computed from cumulative `rain_mm` with midnight resets in Europe/Madrid timezone)
+   - Precipitation rate (derived from rate of change in `rain_mm`)
 
-All derived fields are stored in InfluxDB for historical querying and consistency across dashboards.
+All derived fields are stored in InfluxDB. Rain-related metrics (daily totals, precipitation rate) are calculated in Grafana dashboards using Flux queries on the raw cumulative `rain_mm` field.
 
 See the [Data Fields Reference](docs/FIELDS.md) for complete formulas, calculations, and field descriptions.
 

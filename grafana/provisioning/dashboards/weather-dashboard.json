@@ -533,7 +533,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "daily_rain_current"
+              "options": "Daily Rain (mm)"
             },
             "properties": [
               {
@@ -544,23 +544,31 @@
                 }
               },
               {
-                "id": "displayName",
-                "value": "Daily Rain"
-              },
-              {
                 "id": "custom.axisPlacement",
                 "value": "left"
               },
               {
                 "id": "unit",
                 "value": "lengthmm"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 30
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "precipitation_rate_mm_h"
+              "options": "Precipitation Rate (mm/h)"
             },
             "properties": [
               {
@@ -569,10 +577,6 @@
                   "fixedColor": "red",
                   "mode": "fixed"
                 }
-              },
-              {
-                "id": "displayName",
-                "value": "Rain Rate"
               },
               {
                 "id": "custom.axisPlacement",
@@ -592,7 +596,15 @@
               },
               {
                 "id": "custom.pointSize",
-                "value": 4
+                "value": 7
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
               }
             ]
           }
@@ -629,7 +641,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"daily_rain_current\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"rain_mm\")\n  |> derivative(unit: 1h, nonNegative: true)\n  |> map(fn: (r) => ({ r with _field: \"Precipitation Rate (mm/h)\" }))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "A"
         },
         {
@@ -637,7 +649,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"precipitation_rate_mm_h\")\n  |> group(columns: [\"_field\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "import \"date\"\nimport \"timezone\"\n\noption location = timezone.location(name: \"Europe/Madrid\")\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"rain_mm\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> difference(nonNegative: true)\n  |> cumulativeSum()\n  |> map(fn: (r) => ({r with _field: \"Daily Rain (mm)\"}))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "B"
         }
       ],
@@ -1099,7 +1111,7 @@
     "to": "now"
   },
   "timepicker": {},
-  "timezone": "browser",
+  "timezone": "Europe/Madrid",
   "title": "Weather Station Dashboard",
   "uid": "weather-station-v2",
   "version": 2

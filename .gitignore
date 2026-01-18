@@ -40,3 +40,6 @@ logs/
 # Temporary query output files
 tasks/
 *.output
+
+# Python cache files
+__pycache__/

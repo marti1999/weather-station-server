@@ -162,7 +162,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"precipitation_rate_mm_h\")\n  |> filter(fn: (r) => r._value > 0.0)\n  |> map(fn: (r) => ({\n    r with\n    bin: if r._value < 1.0 then \"0-1 mm/h (drizzle)\"\n      else if r._value < 5.0 then \"1-5 mm/h (light)\"\n      else if r._value < 10.0 then \"5-10 mm/h (moderate)\"\n      else if r._value < 25.0 then \"10-25 mm/h (heavy)\"\n      else \"25+ mm/h (very heavy)\"\n  }))\n  |> group(columns: [\"bin\"])\n  |> count()\n  |> group()\n  |> sort(columns: [\"_value\"], desc: true)",
+          "query": "from(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"rain_mm\")\n  |> derivative(unit: 1h, nonNegative: true)\n  |> filter(fn: (r) => r._value > 0.0)\n  |> map(fn: (r) => ({\n    r with\n    bin: if r._value < 1.0 then \"0-1 mm/h (drizzle)\"\n      else if r._value < 5.0 then \"1-5 mm/h (light)\"\n      else if r._value < 10.0 then \"5-10 mm/h (moderate)\"\n      else if r._value < 25.0 then \"10-25 mm/h (heavy)\"\n      else \"25+ mm/h (very heavy)\"\n  }))\n  |> group(columns: [\"bin\"])\n  |> count()\n  |> group()\n  |> sort(columns: [\"_value\"], desc: true)",
           "refId": "A"
         }
       ],

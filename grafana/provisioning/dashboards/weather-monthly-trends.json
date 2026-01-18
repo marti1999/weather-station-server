@@ -551,7 +551,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "daily_rain_current"
+              "options": "Daily Rain (mm)"
             },
             "properties": [
               {
@@ -560,10 +560,6 @@
                   "fixedColor": "blue",
                   "mode": "fixed"
                 }
-              },
-              {
-                "id": "displayName",
-                "value": "Daily Rain"
               },
               {
                 "id": "custom.axisPlacement",
@@ -576,13 +572,21 @@
               {
                 "id": "unit",
                 "value": "lengthmm"
+              },
+              {
+                "id": "custom.barAlignment",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "max_rate"
+              "options": "Precipitation Rate (mm/h)"
             },
             "properties": [
               {
@@ -591,10 +595,6 @@
                   "fixedColor": "red",
                   "mode": "fixed"
                 }
-              },
-              {
-                "id": "displayName",
-                "value": "Max Rate"
               },
               {
                 "id": "custom.axisPlacement",
@@ -607,6 +607,14 @@
               {
                 "id": "custom.pointSize",
                 "value": 8
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
               },
               {
                 "id": "unit",
@@ -641,7 +649,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"daily_rain_current\")\n  |> aggregateWindow(every: windowSize, fn: max, createEmpty: false)\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"rain_mm\")\n  |> aggregateWindow(every: windowSize, fn: last, createEmpty: false)\n  |> difference(nonNegative: true)\n  |> map(fn: (r) => ({ r with _field: \"Daily Rain (mm)\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "A"
         },
         {
@@ -649,7 +657,7 @@
             "type": "influxdb",
             "uid": "P8787480E04B9696A"
           },
-          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"precipitation_rate_mm_h\")\n  |> aggregateWindow(every: windowSize, fn: max, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"max_rate\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
+          "query": "rangeMs = (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 1000000\n\nwindowSize = if rangeMs >= 31536000000 then 30d\n  else if rangeMs >= 2592000000 then 1d\n  else if rangeMs >= 86400000 then 6h\n  else 10m\n\nfrom(bucket: \"weather_data\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"rtl433\")\n  |> filter(fn: (r) => r._field == \"rain_mm\")\n  |> derivative(unit: 1h, nonNegative: true)\n  |> aggregateWindow(every: windowSize, fn: max, createEmpty: false)\n  |> map(fn: (r) => ({ r with _field: \"Precipitation Rate (mm/h)\" }))\n  |> drop(columns: [\"_measurement\", \"model\", \"id\", \"channel\", \"battery_ok\", \"mic\", \"mod\", \"topic\", \"host\"])",
           "refId": "B"
         }
       ],

@@ -90,39 +90,6 @@ Where:
 
 **Purpose**: Perceived temperature accounting for wind and humidity effects on human comfort.
 
-### Precipitation-Related
-
-#### `daily_rain_current`
-**Data Type**: float
-**Unit**: mm
-**Calculation**: `rain_mm - daily_start_rain`
-**Reset**: Midnight (local timezone)
-
-**Purpose**: Accumulation for the current day. Resets to 0.0 at midnight.
-
-**Edge Cases**:
-- Sensor reset detection: If value becomes negative, resets to 0.0
-
-#### `daily_rain_total`
-**Data Type**: float
-**Unit**: mm
-**Calculation**: Previous complete day's rain total
-**Update**: At midnight (local timezone)
-
-**Purpose**: Historical daily rainfall (same value throughout the day). Used for long-term statistics and monthly aggregations.
-
-**State Management**: Persists in Telegraf memory (lost on restart).
-
-#### `precipitation_rate_mm_h`
-**Data Type**: float
-**Unit**: mm/h
-**Calculation**: `(rain_change / time_elapsed) × 3600`
-**Window**: 5 minutes (300 seconds)
-
-**Purpose**: Current rainfall intensity. Useful for detecting heavy rain events.
-
-**Update Frequency**: Every 5 minutes minimum.
-
 ### Solar-Related
 
 #### `solar_radiation_w_m2`
@@ -235,10 +202,10 @@ from(bucket: "weather_data")
 
 | Aggregation | Function | Field | Description |
 |-------------|----------|-------|-------------|
-| `daily_rain` | `last()` | `daily_rain_total` | Total rainfall for the day |
-| `max_rate` | `max()` | `precipitation_rate_mm_h` | Peak rainfall rate for the day |
+| `daily_rain` | `difference()` on `rain_mm` | `rain_mm` | Daily rainfall calculated from midnight reset |
+| `max_rate` | `derivative()` on `rain_mm` | `rain_mm` | Peak rainfall rate (mm/h) |
 
-**Note**: Uses `last()` for daily_rain_total because this field already contains the daily total (updated at midnight).
+**Note**: Daily rain is computed in Grafana by calculating the difference in cumulative `rain_mm` from midnight (Europe/Madrid timezone). Precipitation rate is derived from the rate of change of `rain_mm` over time.
 
 ### Real-Time Aggregations (Daily Dashboard)
 
@@ -288,6 +255,20 @@ The daily dashboard uses `aggregateWindow(every: v.windowPeriod)` where the peri
 - Raw data: ~2-3 MB/day
 - With 30-day retention: ~60-90 MB total
 
+### Rain Data Handling
+
+**Raw Field**: `rain_mm` (cumulative rainfall since sensor reset)
+- Stored as-is in InfluxDB
+- Continuously increases throughout the sensor's operation
+- Resets to 0 only when sensor is manually reset or power-cycled
+
+**Dashboard Calculations** (Grafana Flux queries):
+- **Daily Rain Total**: Calculated using `difference()` function on `rain_mm` with midnight reset boundaries (Europe/Madrid timezone)
+- **Precipitation Rate**: Calculated using `derivative()` function to compute mm/h from rate of change in `rain_mm`
+- **Historical Analysis**: Monthly/yearly totals computed by aggregating daily differences
+
+No derived rain fields are stored in InfluxDB—all precipitation metrics are computed on-demand in Grafana dashboards.
+
 ### Querying Examples
 
 **Get latest temperature**:
@@ -318,36 +299,26 @@ from(bucket: "weather_data")
 
 ## Timezone Configuration
 
-**Critical Setting**: The `TZ` environment variable in `.env` controls timezone handling across the entire stack.
+**Critical Setting**: The `TZ` environment variable in `.env` controls timezone handling across the entire stack. Set to `Europe/Madrid` for automatic DST handling.
 
 ### Where TZ is Used
 
 1. **RTL_433 Container**: Formats timestamps in local time
-2. **Telegraf Container**: Uses for `json_timezone` parsing
-3. **Telegraf Starlark Processor**: Manual offset calculation for daily reset
+2. **Telegraf Container**: Uses for `json_timezone` parsing and automatic timezone conversion
+3. **Grafana Dashboards**: Automatically handle Europe/Madrid timezone with DST transitions
 
-### Important Limitation
+### Automatic DST Handling
 
-The Telegraf Starlark processor has a **hardcoded timezone offset** (line 98 in `telegraf.conf`):
+The system automatically adjusts for Daylight Saving Time changes. All containers use `TZ=Europe/Madrid`, which provides:
+- **Winter (Standard Time)**: UTC+1
+- **Summer (Daylight Time)**: UTC+2
+- **Automatic Transitions**: Last Sunday of March (spring forward) and October (fall back)
 
-```python
-tz_offset = 3600  # UTC+1 for Europe/Madrid winter
-```
-
-**Manual Adjustment Required**:
-- **Europe/Madrid (winter)**: `tz_offset = 3600` (UTC+1)
-- **Europe/Madrid (summer)**: `tz_offset = 7200` (UTC+2)
-- **US Eastern (winter)**: `tz_offset = -18000` (UTC-5)
-- **US Eastern (summer)**: `tz_offset = -14400` (UTC-4)
-
-This offset is used for daily rain reset calculations. If not adjusted for DST, midnight detection will be off by 1 hour during summer months.
+No manual configuration changes are needed when DST transitions occur.
 
 ### Grafana Dashboard Timezone
 
-- **Daily Dashboard**: Uses `"timezone": "browser"` (inherits from browser)
-- **Monthly Trends**: Uses `"timezone": "Europe/Madrid"` (explicit setting)
-
-All dashboard queries include `timeShift(duration: -1h)` to align aggregation boundaries with local midnight.
+All dashboards are configured with `"timezone": "Europe/Madrid"` for consistent time display and query boundaries. Daily aggregations (midnight resets) align automatically with Europe/Madrid local time, including DST transitions.
 
 ---
 
