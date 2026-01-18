@@ -42,14 +42,15 @@ def reconstruct_daily_rain():
     write_api = client.write_api(write_options=SYNCHRONOUS)
     
     try:
-        # Get yesterday's date range
+        # Get yesterday's date range (ensure we only process the target day)
         yesterday = datetime.now() - timedelta(days=1)
         start_time = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_time = start_time + timedelta(days=1)
+        end_time = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
         
         print(f"Reconstructing rain data for {yesterday.strftime('%Y-%m-%d')}")
+        print(f"Time range: {start_time.isoformat()} to {end_time.isoformat()}")
         
-        # Query both daily_rain_current and rain_mm for yesterday
+        # Query both daily_rain_current and rain_mm for yesterday ONLY
         daily_rain_query = f'''
         from(bucket: "{bucket}")
           |> range(start: {start_time.isoformat()}Z, stop: {end_time.isoformat()}Z)
